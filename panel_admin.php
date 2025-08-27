@@ -1,23 +1,23 @@
 <?php
 session_start();
-require 'db.php'; // conexión a la BD
+require 'db.php'; // esto debe estar ANTES de usar $db
 
-// 1. Verificar sesión y rol
-if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] !== 'admin') {
-    header('Location: login.php');
-    exit;
+if (!isset($_SESSION['usuario_id']) || $_SESSION['role'] !== 'admin') {
+    header('Location: admin_login.php'); // o a login_simple.php, según tu flujo
+    exit();
 }
 
+
 // 2. Obtener órdenes abiertas
-$ordenes = $db->query("SELECT op.id, op.numero_orden, p.nombre AS pieza 
+$ordenes = $pdo->query("SELECT op.id, op.numero_orden, p.nombre AS pieza 
                        FROM ordenes_produccion op
                        JOIN piezas p ON p.id = op.pieza_id
                        WHERE op.estado = 'abierta'
                        ORDER BY op.fecha_inicio DESC");
 
 // 3. Obtener catálogo de prensas y piezas
-$prensas = $db->query("SELECT id, nombre FROM prensas ORDER BY nombre");
-$piezas = $db->query("SELECT id, nombre FROM piezas ORDER BY nombre");
+$prensas = $pdo->query("SELECT id, nombre FROM prensas ORDER BY nombre");
+$piezas = $pdo->query("SELECT id, nombre FROM piezas ORDER BY nombre");
 
 // 4. Procesar formulario de habilitación
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     $pieza_id = $_POST['pieza_id'];
 
     // Insertar en prensas_habilitadas
-    $stmt = $db->prepare("INSERT INTO prensas_habilitadas 
+    $stmt = $pdo->prepare("INSERT INTO prensas_habilitadas 
         (orden_id, fecha, prensa_id, pieza_id, habilitado) 
         VALUES (?, ?, ?, ?, 1)
         ON DUPLICATE KEY UPDATE pieza_id = VALUES(pieza_id), habilitado = 1");
@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     ];
 
     foreach ($horas as $h) {
-        $stmt2 = $db->prepare("INSERT INTO capturas_hora 
+        $stmt2 = $pdo->prepare("INSERT INTO capturas_hora 
             (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, estado) 
             VALUES (?, ?, ?, ?, ?, ?, 'pendiente')");
         $stmt2->execute([$orden_id, $fecha, $prensa_id, $pieza_id, $h[0], $h[1]]);
@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
 
 // 5. Consultar prensas habilitadas hoy
 $hoy = date('Y-m-d');
-$habilitadas = $db->prepare("SELECT ph.fecha, ph.prensa_id, pr.nombre AS prensa, 
+$habilitadas = $pdo->prepare("SELECT ph.fecha, ph.prensa_id, pr.nombre AS prensa, 
                                     ph.pieza_id, pi.nombre AS pieza
                              FROM prensas_habilitadas ph
                              JOIN prensas pr ON pr.id = ph.prensa_id

@@ -1,8 +1,14 @@
 <?php
 session_start();
 if (isset($_SESSION['role'])) {
-  header("Location: panel_admin.php");
-  exit();
+  if ($_SESSION['role'] === 'admin') {
+    header("Location: panel_admin.php");
+    exit();
+  } else {
+    // Si no es admin, lo mandamos al panel que le corresponde
+    header("Location: panel_operador.php");
+    exit();
+  }
 }
 
 include 'db.php';
