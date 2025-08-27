@@ -1,7 +1,7 @@
 <?php
 session_start();
-if (isset($_SESSION['role'])) {
-  if ($_SESSION['role'] === 'admin') {
+if (isset($_SESSION['rol'])) {
+  if ($_SESSION['rol'] === 'admin') {
     header("Location: panel_admin.php");
   } else {
     header("Location: panel_operador.php");

@@ -20,7 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-
 // 2. Obtener órdenes abiertas
 $ordenes = $pdo->query("SELECT op.id, op.numero_orden, p.nombre AS pieza 
                        FROM ordenes_produccion op

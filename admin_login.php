@@ -1,12 +1,12 @@
 <?php
 session_start();
-if (isset($_SESSION['role'])) {
-  if ($_SESSION['role'] === 'admin') {
+if (isset($_SESSION['rol'])) {
+  if ($_SESSION['rol'] === 'admin') {
     header("Location: panel_admin.php");
     exit();
   } else {
     // Si no es admin, lo mandamos al panel que le corresponde
-    header("Location: panel_operador.php");
+    header("Location: admin_login.php");
     exit();
   }
 }
@@ -14,10 +14,10 @@ if (isset($_SESSION['role'])) {
 include 'db.php';
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-  $user = $_POST['username'];
+  $user = $_POST['usuario'];
   $pass = $_POST['password'];
 
-  $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE username=?");
+  $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE usuario=?");
   $stmt->execute([$user]);
   $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -25,13 +25,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $error = "Usuario no encontrado";
   } elseif (!password_verify($pass, $usuario['password'])) {
     $error = "Contraseña incorrecta";
-  } elseif ($usuario['role'] !== 'admin') {
+  } elseif ($usuario['rol'] !== 'admin') {
     $error = "No tienes permisos de administrador";
   } else {
     session_regenerate_id(true);
-    $_SESSION['role'] = "admin";
-    $_SESSION['user'] = $usuario['username'];
-    $_SESSION['nombre'] = $usuario['nombre'] ?? $usuario['username'];
+    $_SESSION['rol'] = "admin";
+    $_SESSION['user'] = $usuario['usuario'];
+    $_SESSION['nombre'] = $usuario['nombre'] ?? $usuario['usuario'];
     $_SESSION['login_time'] = time();
     header("Location: panel_admin.php");
     exit();
@@ -141,7 +141,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
   <div class="login-container">
     <h2>Acceso</h2>
     <form method="post">
-      <input type="text" name="username" placeholder="Usuario" required><br>
+      <input type="text" name="usuario" placeholder="Usuario" required><br>
       <input type="password" name="password" placeholder="Contraseña" required><br>
       <button type="submit">Ingresar</button>
     </form>
