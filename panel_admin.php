@@ -1,10 +1,23 @@
 <?php
 session_start();
-require 'db.php'; // esto debe estar ANTES de usar $db
+require 'db.php';
 
-if (!isset($_SESSION['usuario_id']) || $_SESSION['role'] !== 'admin') {
-    header('Location: admin_login.php'); // o a login_simple.php, según tu flujo
-    exit();
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $usuario = $_POST['usuario'];
+    $password = $_POST['password'];
+
+    $stmt = $pdo->prepare("SELECT id, password FROM usuarios WHERE usuario = ? AND rol = 'admin'");
+    $stmt->execute([$usuario]);
+    $user = $stmt->fetch();
+
+    if ($user && password_verify($password, $user['password'])) {
+        $_SESSION['usuario_id'] = $user['id'];
+        $_SESSION['rol'] = 'admin';
+        header('Location: panel_admin.php');
+        exit;
+    } else {
+        $error = "Usuario o contraseña incorrectos";
+    }
 }
 
 
@@ -73,7 +86,7 @@ $habilitadas->execute([$hoy]);
 </head>
 <body>
 <h1>Panel Administrador</h1>
-
+<p><a href="logout.php" style="color:red; font-weight:bold;">Salir del sistema</a></p>
 <?php if (isset($mensaje)) echo "<p style='color:green;'>$mensaje</p>"; ?>
 
 <form method="post">
