@@ -1,14 +1,24 @@
 <?php
 session_start();
-if (isset($_SESSION['rol'])) {
-  if ($_SESSION['rol'] === 'admin') {
-    header("Location: panel_admin.php");
-  } else {
-    header("Location: panel_operador.php");
-  }
-  exit();
+
+// Evitar caché del navegador
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
+
+// Redirección automática SOLO si vienes de un login real
+if (!empty($_SESSION['from_login']) && isset($_SESSION['rol'])) {
+    unset($_SESSION['from_login']); // se usa una sola vez
+
+    if ($_SESSION['rol'] === 'admin') {
+        header("Location: panel_admin.php");
+    } elseif ($_SESSION['rol'] === 'operador') {
+        header("Location: panel_operador.php");
+    }
+    exit();
 }
 ?>
+
+
 <!DOCTYPE html>
 <html lang="es">
 
@@ -84,7 +94,7 @@ if (isset($_SESSION['rol'])) {
   <button class="admin-button" onclick="location.href='admin_login.php'">Admin</button>
   <div class="container">
     <h1>Bienvenido</h1>
-    <button class="main-button" onclick="location.href='login_simple_process.php'">Entrar al Sistema</button>
+    <button class="main-button" onclick="location.href='login_operador.php'">Entrar al Sistema</button>
   </div>
 </body>
 

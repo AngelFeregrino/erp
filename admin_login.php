@@ -1,43 +1,36 @@
 <?php
 session_start();
-if (isset($_SESSION['rol'])) {
-  if ($_SESSION['rol'] === 'admin') {
-    header("Location: panel_admin.php");
-    exit();
-  } else {
-    // Si no es admin, lo mandamos al panel que le corresponde
-    header("Location: admin_login.php");
-    exit();
-  }
-}
-
-include 'db.php';
+require 'db.php';
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-  $user = $_POST['usuario'];
-  $pass = $_POST['password'];
+    $usuario_input = $_POST['usuario'];
+    $pass_input    = $_POST['password'];
 
-  $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE usuario=?");
-  $stmt->execute([$user]);
-  $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE usuario = ?");
+    $stmt->execute([$usuario_input]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-  if (!$usuario) {
-    $error = "Usuario no encontrado";
-  } elseif (!password_verify($pass, $usuario['password'])) {
-    $error = "Contraseña incorrecta";
-  } elseif ($usuario['rol'] !== 'admin') {
-    $error = "No tienes permisos de administrador";
-  } else {
-    session_regenerate_id(true);
-    $_SESSION['rol'] = "admin";
-    $_SESSION['user'] = $usuario['usuario'];
-    $_SESSION['nombre'] = $usuario['nombre'] ?? $usuario['usuario'];
-    $_SESSION['login_time'] = time();
-    header("Location: panel_admin.php");
-    exit();
-  }
+    if (!$user) {
+        $error = "Usuario no encontrado";
+    } elseif (!password_verify($pass_input, $user['password'])) {
+        $error = "Contraseña incorrecta";
+    } elseif ($user['rol'] !== 'admin') {
+        $error = "No tienes permisos de administrador";
+    } else {
+        session_regenerate_id(true);
+        $_SESSION['from_login'] = true; // Para redirección automática tras login
+        $_SESSION['id']         = $user['id'];
+        $_SESSION['usuario']    = $user['usuario'];
+        $_SESSION['rol']        = $user['rol']; // 'admin'
+        $_SESSION['nombre']     = $user['nombre'] ?? $user['usuario'];
+        $_SESSION['login_time'] = time();
+        header("Location: login_simple.php"); // paso intermedio
+        exit();
+    }
 }
 ?>
+
+
 <!DOCTYPE html>
 
 <html lang="es">

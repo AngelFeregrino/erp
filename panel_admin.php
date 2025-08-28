@@ -1,24 +1,15 @@
 <?php
 session_start();
-require 'db.php';
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $usuario = $_POST['usuario'];
-    $password = $_POST['password'];
-
-    $stmt = $pdo->prepare("SELECT id, password FROM usuarios WHERE usuario = ? AND rol = 'admin'");
-    $stmt->execute([$usuario]);
-    $user = $stmt->fetch();
-
-    if ($user && password_verify($password, $user['password'])) {
-        $_SESSION['usuario_id'] = $user['id'];
-        $_SESSION['rol'] = 'admin';
-        header('Location: panel_admin.php');
-        exit;
-    } else {
-        $error = "Usuario o contraseña incorrectos";
-    }
+if (!isset($_SESSION['id']) || $_SESSION['rol'] !== 'admin') {
+    header('Location: admin_login.php');
+    exit();
 }
+
+require 'db.php';
 
 // 2. Obtener órdenes abiertas
 $ordenes = $pdo->query("SELECT op.id, op.numero_orden, p.nombre AS pieza 
