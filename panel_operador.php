@@ -11,6 +11,10 @@ if (!isset($_SESSION['id']) || $_SESSION['rol'] !== 'operador') {
 
 require 'db.php';
 
+$hoy = date('Y-m-d');
+$hora_actual = date('H:i:s');
+$nombre = $_SESSION['nombre'] ?: $_SESSION['usuario'];
+
 // 1. Obtener prensas habilitadas hoy
 $stmt = $pdo->prepare("SELECT ph.orden_id, ph.prensa_id, pr.nombre AS prensa,
                                ph.pieza_id, pi.nombre AS pieza
@@ -35,7 +39,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['capturar'])) {
     // Tolerancia de +10 min
     $hora_limite = date('H:i:s', strtotime($hora_fin . ' +10 minutes'));
 
-    if ($hora_actual >= $hora_ini && $hora_actual <= $hora_limite) {
+    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM capturas_hora 
+                                WHERE orden_id=? AND hora_inicio=? AND hora_fin=?");
+    $stmtCheck->execute([$orden_id, $hora_ini, $hora_fin]);
+
+    if ($stmtCheck->fetchColumn() > 0) {
+        $mensaje = "⚠️ Ya existe una captura para esa franja.";
+    } elseif ($hora_actual >= $hora_ini && $hora_actual <= $hora_limite) {
         // Guardar captura
         $stmt = $pdo->prepare("INSERT INTO capturas_hora
             (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, cantidad, observaciones_op, firma_operador, estado)
@@ -63,56 +73,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['capturar'])) {
 <head>
     <meta charset="UTF-8">
     <title>Panel Operador</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body>
-<h1>Hola, <?= htmlspecialchars($nombre) ?> 🛠️</h1>
-<p><a href="logout.php" style="color:red; font-weight:bold;">Cerrar sesión</a></p>
+<body class="bg-light">
 
-<?php if (!empty($mensaje)) echo "<p>$mensaje</p>"; ?>
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3">👷 Panel Operador — Hola, <?= htmlspecialchars($nombre) ?></h1>
+        <a href="logout.php" class="btn btn-danger">Cerrar sesión</a>
+    </div>
 
-<h2>Prensas habilitadas hoy (<?= $hoy ?>)</h2>
-<?php if (empty($habilitadas)): ?>
-    <p>No hay prensas habilitadas para hoy.</p>
-<?php else: ?>
-    <?php foreach ($habilitadas as $h): ?>
-        <h3><?= htmlspecialchars($h['prensa']) ?> — <?= htmlspecialchars($h['pieza']) ?></h3>
-        <form method="post">
-            <input type="hidden" name="orden_id" value="<?= $h['orden_id'] ?>">
-            <input type="hidden" name="prensa_id" value="<?= $h['prensa_id'] ?>">
-            <input type="hidden" name="pieza_id" value="<?= $h['pieza_id'] ?>">
+    <?php if (!empty($mensaje)): ?>
+        <div class="alert alert-info"><?= $mensaje ?></div>
+    <?php endif; ?>
 
-            <label>Hora inicio:</label>
-            <input type="time" name="hora_inicio" required>
-            <label>Hora fin:</label>
-            <input type="time" name="hora_fin" required><br><br>
+    <h4 class="mb-3">Prensas habilitadas hoy (<?= $hoy ?>)</h4>
 
-            <label>Cantidad:</label>
-            <input type="number" name="cantidad" required><br><br>
+    <?php if (empty($habilitadas)): ?>
+        <div class="alert alert-warning">No hay prensas habilitadas para hoy.</div>
+    <?php else: ?>
+        <?php foreach ($habilitadas as $h): ?>
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <?= htmlspecialchars($h['prensa']) ?> — <?= htmlspecialchars($h['pieza']) ?>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <input type="hidden" name="orden_id" value="<?= $h['orden_id'] ?>">
+                    <input type="hidden" name="prensa_id" value="<?= $h['prensa_id'] ?>">
+                    <input type="hidden" name="pieza_id" value="<?= $h['pieza_id'] ?>">
 
-            <label>Observaciones:</label>
-            <input type="text" name="observaciones"><br><br>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Hora inicio</label>
+                            <input type="time" name="hora_inicio" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Hora fin</label>
+                            <input type="time" name="hora_fin" class="form-control" required>
+                        </div>
+                    </div>
 
-            <label>Firma operador:</label>
-            <input type="text" name="firma" required><br><br>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Cantidad</label>
+                            <input type="number" name="cantidad" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Observaciones</label>
+                            <input type="text" name="observaciones" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Firma operador</label>
+                            <input type="text" name="firma" class="form-control" required>
+                        </div>
+                    </div>
 
-            <h4>Datos técnicos:</h4>
-            <?php
-            $stmt3 = $pdo->prepare("SELECT id, nombre_atributo, unidad
-                                    FROM atributos_pieza
-                                    WHERE pieza_id = ?");
-            $stmt3->execute([$h['pieza_id']]);
-            $atributos = $stmt3->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($atributos as $a):
-            ?>
-                <label><?= htmlspecialchars($a['nombre_atributo']) ?> (<?= htmlspecialchars($a['unidad']) ?>):</label>
-                <input type="text" name="atributo[<?= $a['id'] ?>]" required><br>
-            <?php endforeach; ?>
+                    <h5 class="mt-3">Datos técnicos</h5>
+                    <div class="row">
+                        <?php
+                        $stmt3 = $pdo->prepare("SELECT id, nombre_atributo, unidad
+                                                FROM atributos_pieza
+                                                WHERE pieza_id = ?");
+                        $stmt3->execute([$h['pieza_id']]);
+                        $atributos = $stmt3->fetchAll(PDO::FETCH_ASSOC);
+                        foreach ($atributos as $a): ?>
+                            <div class="col-md-4 mb-2">
+                                <label class="form-label">
+                                    <?= htmlspecialchars($a['nombre_atributo']) ?> (<?= htmlspecialchars($a['unidad']) ?>)
+                                </label>
+                                <input type="text" name="atributo[<?= $a['id'] ?>]" class="form-control" required>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
 
-            <br>
-            <button type="submit" name="capturar">Guardar captura</button>
-        </form>
-        <hr>
-    <?php endforeach; ?>
-<?php endif; ?>
+                    <div class="text-end mt-3">
+                        <button type="submit" name="capturar" class="btn btn-success">Guardar captura</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

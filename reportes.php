@@ -1,0 +1,95 @@
+<?php
+session_start();
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+
+if (!isset($_SESSION['id']) || $_SESSION['rol'] !== 'admin') {
+    header('Location: admin_login.php');
+    exit();
+}
+
+require 'db.php';
+
+// Fecha seleccionada (hoy por defecto)
+$fecha = $_GET['fecha'] ?? date('Y-m-d');
+
+// Consulta de reportes
+$stmt = $pdo->prepare("
+    SELECT pr.nombre AS prensa, pi.nombre AS pieza,
+           SUM(ch.cantidad) AS total_cantidad
+    FROM capturas_hora ch
+    JOIN prensas pr ON pr.id = ch.prensa_id
+    JOIN piezas pi ON pi.id = ch.pieza_id
+    WHERE ch.fecha = ?
+    GROUP BY pr.nombre, pi.nombre
+    ORDER BY pr.nombre, pi.nombre
+");
+$stmt->execute([$fecha]);
+$resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reportes de Producción</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3">📊 Reportes de Producción</h1>
+        <a href="panel_admin.php" class="btn btn-secondary">⬅ Volver al Panel</a>
+    </div>
+
+    <!-- Filtro de fecha -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">Seleccionar fecha</div>
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-4">
+                    <input type="date" name="fecha" value="<?= $fecha ?>" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-success">Consultar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Resultados -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            Resultados para <?= $fecha ?>
+        </div>
+        <div class="card-body">
+            <?php if (empty($resultados)): ?>
+                <div class="alert alert-info">No hay datos de producción para esta fecha.</div>
+            <?php else: ?>
+                <table class="table table-bordered table-striped">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Prensa</th>
+                            <th>Pieza</th>
+                            <th>Total Producido</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($resultados as $r): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($r['prensa']) ?></td>
+                            <td><?= htmlspecialchars($r['pieza']) ?></td>
+                            <td class="text-end"><?= number_format($r['total_cantidad']) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

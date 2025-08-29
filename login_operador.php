@@ -7,7 +7,7 @@ session_start();
 // Sesión de operador "automática"
 
 $_SESSION['from_login'] = true;
-$_SESSION['id']         = 0; // o id real si existe en BD
+$_SESSION['id']         = 2; // o id real si existe en BD
 $_SESSION['usuario']    = 'operador';
 $_SESSION['rol']        = 'operador';
 $_SESSION['nombre']     = '';
