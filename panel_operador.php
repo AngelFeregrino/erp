@@ -15,57 +15,39 @@ $hoy = date('Y-m-d');
 $hora_actual = date('H:i:s');
 $nombre = $_SESSION['nombre'] ?: $_SESSION['usuario'];
 
-// 1. Obtener prensas habilitadas hoy
-$stmt = $pdo->prepare("SELECT ph.orden_id, ph.prensa_id, pr.nombre AS prensa,
-                               ph.pieza_id, pi.nombre AS pieza
-                        FROM prensas_habilitadas ph
-                        JOIN prensas pr ON pr.id = ph.prensa_id
-                        JOIN piezas pi ON pi.id = ph.pieza_id
-                        WHERE ph.fecha = ? AND ph.habilitado = 1");
+// 1. Obtener capturas pendientes hoy
+$stmt = $pdo->prepare("SELECT ch.id AS captura_id, ch.hora_inicio, ch.hora_fin, ch.estado,
+                              pr.nombre AS prensa, pi.nombre AS pieza, ch.orden_id, ch.prensa_id, ch.pieza_id
+                       FROM capturas_hora ch
+                       JOIN prensas pr ON pr.id = ch.prensa_id
+                       JOIN piezas pi ON pi.id = ch.pieza_id
+                       WHERE ch.fecha = ?");
 $stmt->execute([$hoy]);
-$habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // 2. Procesar captura
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['capturar'])) {
-    $orden_id  = $_POST['orden_id'];
-    $prensa_id = $_POST['prensa_id'];
-    $pieza_id  = $_POST['pieza_id'];
-    $hora_ini  = $_POST['hora_inicio'];
-    $hora_fin  = $_POST['hora_fin'];
-    $cantidad  = $_POST['cantidad'];
-    $obs       = $_POST['observaciones'];
-    $firma     = $_POST['firma'];
+    $captura_id = $_POST['captura_id'];
+    $cantidad   = $_POST['cantidad'];
+    $obs        = $_POST['observaciones'];
+    $firma      = $_POST['firma'];
 
-    // Tolerancia de +10 min
-    $hora_limite = date('H:i:s', strtotime($hora_fin . ' +10 minutes'));
+    // Actualizar captura
+    $stmt = $pdo->prepare("UPDATE capturas_hora 
+                           SET cantidad=?, observaciones_op=?, firma_operador=?, estado='cerrada' 
+                           WHERE id=?");
+    $stmt->execute([$cantidad, $obs, $firma, $captura_id]);
 
-    $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM capturas_hora 
-                                WHERE orden_id=? AND hora_inicio=? AND hora_fin=?");
-    $stmtCheck->execute([$orden_id, $hora_ini, $hora_fin]);
-
-    if ($stmtCheck->fetchColumn() > 0) {
-        $mensaje = "⚠️ Ya existe una captura para esa franja.";
-    } elseif ($hora_actual >= $hora_ini && $hora_actual <= $hora_limite) {
-        // Guardar captura
-        $stmt = $pdo->prepare("INSERT INTO capturas_hora
-            (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, cantidad, observaciones_op, firma_operador, estado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'cerrada')");
-        $stmt->execute([$orden_id, $hoy, $prensa_id, $pieza_id, $hora_ini, $hora_fin, $cantidad, $obs, $firma]);
-        $captura_id = $pdo->lastInsertId();
-
-        // Guardar atributos técnicos
-        if (!empty($_POST['atributo'])) {
-            foreach ($_POST['atributo'] as $atributo_id => $valor) {
-                $stmt2 = $pdo->prepare("INSERT INTO valores_hora (captura_id, atributo_pieza_id, valor)
-                                        VALUES (?, ?, ?)");
-                $stmt2->execute([$captura_id, $atributo_id, $valor]);
-            }
+    // Guardar valores técnicos
+    if (!empty($_POST['atributo'])) {
+        foreach ($_POST['atributo'] as $atributo_id => $valor) {
+            $stmt2 = $pdo->prepare("INSERT INTO valores_hora (captura_id, atributo_pieza_id, valor)
+                                    VALUES (?, ?, ?)");
+            $stmt2->execute([$captura_id, $atributo_id, $valor]);
         }
-
-        $mensaje = "✅ Captura registrada correctamente.";
-    } else {
-        $mensaje = "⚠️ Fuera de la ventana horaria permitida.";
     }
+
+    $mensaje = "✅ Captura registrada correctamente.";
 }
 ?>
 <!DOCTYPE html>
@@ -74,6 +56,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['capturar'])) {
     <meta charset="UTF-8">
     <title>Panel Operador</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .estado-box {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+        .estado-pendiente { background: orange; }
+        .estado-cerrada { background: green; }
+        .valido { border: 2px solid green; }
+        .invalido { border: 2px solid red; }
+    </style>
 </head>
 <body class="bg-light">
 
@@ -87,70 +82,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['capturar'])) {
         <div class="alert alert-info"><?= $mensaje ?></div>
     <?php endif; ?>
 
-    <h4 class="mb-3">Prensas habilitadas hoy (<?= $hoy ?>)</h4>
+    <h4 class="mb-3">Capturas programadas (<?= $hoy ?>)</h4>
 
-    <?php if (empty($habilitadas)): ?>
-        <div class="alert alert-warning">No hay prensas habilitadas para hoy.</div>
+    <?php if (empty($capturas)): ?>
+        <div class="alert alert-warning">No hay capturas programadas hoy.</div>
     <?php else: ?>
-        <?php foreach ($habilitadas as $h): ?>
+        <?php foreach ($capturas as $c): ?>
         <div class="card mb-4 shadow-sm">
             <div class="card-header bg-primary text-white">
-                <?= htmlspecialchars($h['prensa']) ?> — <?= htmlspecialchars($h['pieza']) ?>
+                <?= htmlspecialchars($c['prensa']) ?> — <?= htmlspecialchars($c['pieza']) ?>
+                <span class="estado-box estado-<?= $c['estado'] ?>"></span>
+                <small>(<?= substr($c['hora_inicio'],0,5) ?> - <?= substr($c['hora_fin'],0,5) ?>)</small>
             </div>
             <div class="card-body">
-                <form method="post">
-                    <input type="hidden" name="orden_id" value="<?= $h['orden_id'] ?>">
-                    <input type="hidden" name="prensa_id" value="<?= $h['prensa_id'] ?>">
-                    <input type="hidden" name="pieza_id" value="<?= $h['pieza_id'] ?>">
+                <?php if ($c['estado'] === 'cerrada'): ?>
+                    <div class="alert alert-success">✅ Esta franja ya fue capturada.</div>
+                <?php else: ?>
+                    <form method="post">
+                        <input type="hidden" name="captura_id" value="<?= $c['captura_id'] ?>">
 
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Hora inicio</label>
-                            <input type="time" name="hora_inicio" class="form-control" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Hora fin</label>
-                            <input type="time" name="hora_fin" class="form-control" required>
-                        </div>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-md-4">
-                            <label class="form-label">Cantidad</label>
-                            <input type="number" name="cantidad" class="form-control" required>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Observaciones</label>
-                            <input type="text" name="observaciones" class="form-control">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Firma operador</label>
-                            <input type="text" name="firma" class="form-control" required>
-                        </div>
-                    </div>
-
-                    <h5 class="mt-3">Datos técnicos</h5>
-                    <div class="row">
-                        <?php
-                        $stmt3 = $pdo->prepare("SELECT id, nombre_atributo, unidad
-                                                FROM atributos_pieza
-                                                WHERE pieza_id = ?");
-                        $stmt3->execute([$h['pieza_id']]);
-                        $atributos = $stmt3->fetchAll(PDO::FETCH_ASSOC);
-                        foreach ($atributos as $a): ?>
-                            <div class="col-md-4 mb-2">
-                                <label class="form-label">
-                                    <?= htmlspecialchars($a['nombre_atributo']) ?> (<?= htmlspecialchars($a['unidad']) ?>)
-                                </label>
-                                <input type="text" name="atributo[<?= $a['id'] ?>]" class="form-control" required>
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Cantidad</label>
+                                <input type="number" name="cantidad" class="form-control" required>
                             </div>
-                        <?php endforeach; ?>
-                    </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Observaciones</label>
+                                <input type="text" name="observaciones" class="form-control">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Firma operador</label>
+                                <input type="text" name="firma" class="form-control" required>
+                            </div>
+                        </div>
 
-                    <div class="text-end mt-3">
-                        <button type="submit" name="capturar" class="btn btn-success">Guardar captura</button>
-                    </div>
-                </form>
+                        <h5 class="mt-3">Datos técnicos</h5>
+                        <div class="row">
+                            <?php
+                            $stmt3 = $pdo->prepare("SELECT id, nombre_atributo, unidad, valor_predeterminado, tolerancia
+                                                    FROM atributos_pieza
+                                                    WHERE pieza_id = ?");
+                            $stmt3->execute([$c['pieza_id']]);
+                            $atributos = $stmt3->fetchAll(PDO::FETCH_ASSOC);
+                            foreach ($atributos as $a): 
+                                $pred = htmlspecialchars($a['valor_predeterminado']);
+                                $tol  = (float)$a['tolerancia'];
+                            ?>
+                                <div class="col-md-4 mb-2">
+                                    <label class="form-label">
+                                        <?= htmlspecialchars($a['nombre_atributo']) ?> (<?= htmlspecialchars($a['unidad']) ?>)
+                                    </label>
+                                    <input type="number" step="0.01"
+                                           name="atributo[<?= $a['id'] ?>]"
+                                           class="form-control atributo-input"
+                                           value="<?= $pred ?>"
+                                           data-pred="<?= $pred ?>" data-tol="<?= $tol ?>">
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <div class="text-end mt-3">
+                            <button type="submit" name="capturar" class="btn btn-success">Guardar captura</button>
+                        </div>
+                    </form>
+                <?php endif; ?>
             </div>
         </div>
         <?php endforeach; ?>
@@ -158,5 +153,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['capturar'])) {
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.querySelectorAll('.atributo-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+        const pred = parseFloat(inp.dataset.pred);
+        const tol  = parseFloat(inp.dataset.tol);
+        const val  = parseFloat(inp.value);
+
+        if (!isNaN(val)) {
+            if (val >= (pred - tol) && val <= (pred + tol)) {
+                inp.classList.add('valido');
+                inp.classList.remove('invalido');
+            } else {
+                inp.classList.add('invalido');
+                inp.classList.remove('valido');
+            }
+        } else {
+            inp.classList.remove('valido', 'invalido');
+        }
+    });
+});
+</script>
 </body>
 </html>
