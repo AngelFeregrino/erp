@@ -4,6 +4,7 @@
 
     
     <a href="panel_admin.php" class="nav-link"> 🏠 Inicio</a>
+    <a href="hojas_trabajo.php" class="nav-link"> 📄 Hojas de Trabajo</a>
     <a href="cerrar_orden.php" class="nav-link"> 🗂 Cerrar Lote Producción</a>
     <a href="reportes.php" class="nav-link">📊 Consultar Reportes</a>
     <a href="crear_usuario.php" class="nav-link">👤 Crear Usuarios</a>
