@@ -25,10 +25,10 @@ $piezas = $pdo->query("SELECT id, nombre FROM piezas ORDER BY nombre")->fetchAll
 // 3. Procesar habilitación
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     $numero_orden = $_POST['numero_orden'];
-    $fecha        = $_POST['fecha'];
-    $prensa_id    = $_POST['prensa_id'];
-    $pieza_id     = $_POST['pieza_id'];
-    $admin_id     = $_SESSION['id'];
+    $fecha = $_POST['fecha'];
+    $prensa_id = $_POST['prensa_id'];
+    $pieza_id = $_POST['pieza_id'];
+    $admin_id = $_SESSION['id'];
 
     // Crear orden
     $stmt = $pdo->prepare("INSERT INTO ordenes_produccion 
@@ -45,8 +45,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
 
     // Crear franjas horarias
     $horas = [
-        ['08:00', '09:00'], ['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00'],
-        ['12:00', '13:00'], ['13:00', '14:00'], ['14:00', '15:00'], ['15:00', '16:00']
+        ['08:00', '09:00'],
+        ['09:00', '10:00'],
+        ['10:00', '11:00'],
+        ['11:00', '12:00'],
+        ['12:00', '13:00'],
+        ['13:00', '14:00'],
+        ['14:00', '15:00'],
+        ['15:00', '16:00']
     ];
     foreach ($horas as $h) {
         $stmt2 = $pdo->prepare("INSERT INTO capturas_hora 
@@ -75,128 +81,123 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta charset="UTF-8">
     <title>Panel Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+
 </head>
 
-<body class="bg-light">
+<body>
+    <?php include 'sidebar.php'; ?>
 
-    <div class="container py-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1 class="h3">⚙️ Panel Administrador</h1>
-            <a href="logout.php" class="btn btn-danger">Cerrar sesión</a>
-        </div>
+        <!-- Contenido principal -->
+        <div class="col-md-10 content bg-light">
+            <h1 class="h3 mb-4">Panel Administrador</h1>
 
-        <?php if (isset($mensaje)): ?>
-            <div class="alert alert-success"><?= $mensaje ?></div>
-        <?php endif; ?>
+            <?php if (isset($mensaje)): ?>
+                <div class="alert alert-success"><?= $mensaje ?></div>
+            <?php endif; ?>
 
-        <!-- Habilitar prensa -->
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header bg-primary text-white">
-                Habilitar prensa y pieza
-            </div>
-            <div class="card-body">
-                <form method="post">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
+            <!-- Habilitar prensa -->
+            <div class="card mb-4 shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    Habilitar prensa y pieza
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        <div class="row mb-3">
                             <div class="col-md-6">
                                 <label class="form-label">Número de Orden</label>
                                 <input type="text" name="numero_orden" class="form-control" placeholder="Ej: ORD-1234"
                                     required>
                             </div>
-
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Fecha</label>
-                            <input type="date" name="fecha" value="<?= $hoy ?>" class="form-control" required>
-                        </div>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Prensa</label>
-                            <select name="prensa_id" class="form-select" required>
-                                <?php foreach ($prensas as $p): ?>
-                                    <option value="<?= $p['id'] ?>"><?= $p['nombre'] ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Pieza</label>
-                            <select name="pieza_id" class="form-select" required>
-                                <?php foreach ($piezas as $pi): ?>
-                                    <option value="<?= $pi['id'] ?>"><?= $pi['nombre'] ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                    </div>
-
-                    <button type="submit" name="habilitar" class="btn btn-success">Habilitar</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- Cerrar orden -->
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header bg-warning">
-                Cerrar orden de producción
-            </div>
-            <div class="card-body">
-                <form method="post" action="cerrar_orden.php">
-                    <div class="row mb-3">
-                        <div class="col-md-4">
                             <div class="col-md-6">
-                                <label class="form-label">Número de Orden</label>
-                                <input type="text" name="numero_orden" class="form-control" placeholder="Ej: ORD-1234"
-                                    required>
+                                <label class="form-label">Fecha</label>
+                                <input type="date" name="fecha" value="<?= $hoy ?>" class="form-control" required>
                             </div>
+                        </div>
 
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Prensa</label>
+                                <select name="prensa_id" class="form-select" required>
+                                    <?php foreach ($prensas as $p): ?>
+                                        <option value="<?= $p['id'] ?>"><?= $p['nombre'] ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Pieza</label>
+                                <select name="pieza_id" class="form-select" required>
+                                    <?php foreach ($piezas as $pi): ?>
+                                        <option value="<?= $pi['id'] ?>"><?= $pi['nombre'] ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Equipo asignado</label>
-                            <input type="text" name="equipo_asignado" class="form-control" required>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Firma responsable</label>
-                            <input type="text" name="firma_responsable" class="form-control" required>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-dark">Cerrar Orden</button>
-                </form>
-            </div>
-        </div>
 
-        <!-- Prensas habilitadas -->
-        <div class="card shadow-sm">
-            <div class="card-header bg-secondary text-white">
-                Prensas habilitadas hoy (<?= $hoy ?>)
+                        <button type="submit" name="habilitar" class="btn btn-success">Habilitar</button>
+                    </form>
+                </div>
             </div>
-            <div class="card-body">
-                <?php if (empty($habilitadas)): ?>
-                    <div class="alert alert-info">No hay prensas habilitadas hoy.</div>
-                <?php else: ?>
-                    <table class="table table-bordered table-striped">
-                        <thead class="table-dark">
-                            <tr>
-                                <th>Fecha</th>
-                                <th>Prensa</th>
-                                <th>Pieza</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($habilitadas as $h): ?>
+
+            <!-- Cerrar orden -->
+            <div class="card mb-4 shadow-sm">
+                <div class="card-header bg-warning">
+                    Cerrar orden de producción
+                </div>
+                <div class="card-body">
+                    <form method="post" action="cerrar_orden.php">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Número de Orden</label>
+                                <input type="text" name="numero_orden" class="form-control" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Equipo asignado</label>
+                                <input type="text" name="equipo_asignado" class="form-control" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Firma responsable</label>
+                                <input type="text" name="firma_responsable" class="form-control" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-dark">Cerrar Orden</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Prensas habilitadas -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-secondary text-white">
+                    Prensas habilitadas hoy (<?= $hoy ?>)
+                </div>
+                <div class="card-body">
+                    <?php if (empty($habilitadas)): ?>
+                        <div class="alert alert-info">No hay prensas habilitadas hoy.</div>
+                    <?php else: ?>
+                        <table class="table table-bordered table-striped">
+                            <thead class="table-dark">
                                 <tr>
-                                    <td><?= $h['fecha'] ?></td>
-                                    <td><?= $h['prensa'] ?></td>
-                                    <td><?= $h['pieza'] ?></td>
+                                    <th>Fecha</th>
+                                    <th>Prensa</th>
+                                    <th>Pieza</th>
                                 </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($habilitadas as $h): ?>
+                                    <tr>
+                                        <td><?= $h['fecha'] ?></td>
+                                        <td><?= $h['prensa'] ?></td>
+                                        <td><?= $h['pieza'] ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
             </div>
+
         </div>
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 
