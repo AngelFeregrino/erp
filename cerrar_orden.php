@@ -35,22 +35,6 @@ $query .= " ORDER BY op.fecha_inicio DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Procesar cierre
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cerrar'])) {
-    $orden_id = $_POST['orden_id'];
-    $equipo_asignado = $_POST['equipo_asignado'];
-    $firma_responsable = $_POST['firma_responsable'];
-    $admin_id = $_SESSION['id'];
-
-    $stmt = $pdo->prepare("UPDATE ordenes_produccion 
-                           SET equipo_asignado = ?, firma_responsable = ?, 
-                               fecha_cierre = NOW(), estado = 'cerrada', admin_id = ?
-                           WHERE id = ?");
-    $stmt->execute([$equipo_asignado, $firma_responsable, $admin_id, $orden_id]);
-
-    $mensaje = "✅ Orden cerrada correctamente.";
-}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -64,10 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cerrar'])) {
 
 <div class="col-md-10 content bg-light">
     <h1 class="h3 mb-4">Cerrar Órdenes de Producción</h1>
-
-    <?php if (isset($mensaje)): ?>
-        <div class="alert alert-success"><?= $mensaje ?></div>
-    <?php endif; ?>
 
     <!-- Filtros -->
     <form class="row g-3 mb-4" method="get">
@@ -125,11 +105,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cerrar'])) {
                     <td><?= $o['fecha_cierre'] ?? '-' ?></td>
                     <td>
                         <?php if ($o['estado'] === 'abierta'): ?>
-                            <form method="post" class="d-flex flex-column gap-1">
-                                <input type="hidden" name="orden_id" value="<?= $o['id'] ?>">
+                            <form class="cerrar-form d-flex flex-column gap-1" data-id="<?= $o['id'] ?>">
                                 <input type="text" name="equipo_asignado" placeholder="Equipo asignado" class="form-control" required>
                                 <input type="text" name="firma_responsable" placeholder="Firma responsable" class="form-control" required>
-                                <button type="submit" name="cerrar" class="btn btn-danger btn-sm mt-1">Cerrar</button>
+                                <button type="submit" class="btn btn-danger btn-sm mt-1">Cerrar</button>
                             </form>
                         <?php else: ?>
                             <span class="badge bg-success">✔ Cerrada</span>
@@ -141,6 +120,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cerrar'])) {
         </tbody>
     </table>
 </div>
+
+<!-- JS para AJAX -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".cerrar-form").forEach(form => {
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const ordenId = form.dataset.id;
+            const formData = new FormData(form);
+            formData.append("orden_id", ordenId);
+
+            try {
+                const response = await fetch("ajax_cerrar_orden.php", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    const row = form.closest("tr");
+                    row.querySelector("td:nth-child(7)").textContent = "Cerrada"; // Estado
+                    row.querySelector("td:nth-child(9)").textContent = data.fecha_cierre; // Fecha cierre
+                    row.querySelector("td:last-child").innerHTML = '<span class="badge bg-success">✔ Cerrada</span>';
+                } else {
+                    alert("⚠ Error: " + (data.error || "No se pudo cerrar la orden"));
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Error en la conexión con el servidor");
+            }
+        });
+    });
+});
+</script>
 
 </body>
 </html>
