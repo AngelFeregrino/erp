@@ -2,7 +2,7 @@
 $host = 'localhost';
 $dbname = 'erp';
 $user = 'root';
-$pass = '';
+$pass = 'admin1234';
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8", $user, $pass);
