@@ -47,7 +47,7 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <?php include 'sidebar.php'; ?>
 
 <div class="col-md-10 content bg-light">
-    <h1 class="h3 mb-4">Cerrar Órdenes de Producción</h1>
+    <h1 class="h3 mb-4">🗂 Cerrar Órdenes de Producción</h1>
 
     <!-- Filtros -->
     <form class="row g-3 mb-4" method="get">

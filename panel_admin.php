@@ -88,7 +88,7 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <!-- Contenido principal -->
     <div class="col-md-10 content bg-light">
-        <h1 class="h3 mb-4">Panel Administrador 🧑‍💼</h1>
+        <h1 class="h3 mb-4">🧑‍💼 Panel Administrador</h1>
 
         <?php if (isset($mensaje)): ?>
             <div class="alert alert-success"><?= $mensaje ?></div>
