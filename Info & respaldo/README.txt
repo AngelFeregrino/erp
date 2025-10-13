@@ -8,3 +8,5 @@ cambiar a usuario y rol
 ademas revisar y checar si la extension de php.ini esta activada la libreria de zip con info.php
 
 en caso de seguridad cambiar db.php & respaldo.php con los respectivos datos de base de datos usuario y contraseña
+
+revisar en la base de datos que los atributos piezas tengan lo de valor predeterminado y tolerancia sino modificar tabla para agregarlos
