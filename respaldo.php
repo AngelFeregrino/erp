@@ -3,7 +3,7 @@ $db_host = 'localhost';
 $db_name = 'erp';
 $db_user = 'root';
 $db_pass = 'admin1234';
-$fecha = date("Ymd-His");
+$fecha = date("Ymd");
 
 $salida_sql = $db_name . '_' . $fecha . '.sql';
 

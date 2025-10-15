@@ -24,7 +24,7 @@ $stmt = $pdo->prepare("
     JOIN piezas pi ON pi.id = ch.pieza_id
     JOIN ordenes_produccion op ON op.id = ch.orden_id
     WHERE ch.fecha = ?
-    ORDER BY ch.fecha, ch.hora_inicio, pr.nombre
+    ORDER BY op.numero_lote, ch.hora_inicio, pr.nombre
 ");
 $stmt->execute([$fecha]);
 $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);

@@ -6,10 +6,12 @@ if (!isset($_SESSION['id']) || $_SESSION['rol'] !== 'admin') {
 }
 require 'db.php';
 
-// Filtrar
+// Filtros
 $filtro_estado = $_GET['estado'] ?? '';
-$filtro_orden = $_GET['orden'] ?? '';
-$filtro_lote = $_GET['lote'] ?? '';
+$filtro_orden  = $_GET['orden'] ?? '';
+$filtro_lote   = $_GET['lote'] ?? '';
+$fecha_inicio  = $_GET['fecha_inicio'] ?? '';
+$fecha_fin     = $_GET['fecha_fin'] ?? '';
 
 $query = "SELECT op.*, p.nombre AS pieza, pr.nombre AS prensa
           FROM ordenes_produccion op
@@ -18,6 +20,8 @@ $query = "SELECT op.*, p.nombre AS pieza, pr.nombre AS prensa
           WHERE 1=1";
 
 $params = [];
+
+// Filtros existentes
 if ($filtro_estado !== '') {
     $query .= " AND op.estado = ?";
     $params[] = $filtro_estado;
@@ -31,7 +35,15 @@ if ($filtro_lote !== '') {
     $params[] = "%$filtro_lote%";
 }
 
+// ✅ NUEVO FILTRO POR RANGO DE FECHAS
+if ($fecha_inicio !== '' && $fecha_fin !== '') {
+    $query .= " AND DATE(op.fecha_inicio) BETWEEN ? AND ?";
+    $params[] = $fecha_inicio;
+    $params[] = $fecha_fin;
+}
+
 $query .= " ORDER BY op.fecha_inicio DESC";
+
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -51,7 +63,7 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <!-- Filtros -->
     <form class="row g-3 mb-4" method="get">
-        <div class="col-md-3">
+        <div class="col-md-2">
             <label class="form-label">Estado</label>
             <select name="estado" class="form-select">
                 <option value="">-- Todos --</option>
@@ -59,22 +71,33 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <option value="cerrada" <?= $filtro_estado==='cerrada'?'selected':'' ?>>Cerrada</option>
             </select>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <label class="form-label">Número de Orden</label>
             <input type="text" name="orden" value="<?= htmlspecialchars($filtro_orden) ?>" class="form-control">
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <label class="form-label">Número de Lote</label>
             <input type="text" name="lote" value="<?= htmlspecialchars($filtro_lote) ?>" class="form-control">
         </div>
-        <div class="col-md-3 d-flex align-items-end">
-            <button type="submit" class="btn btn-primary">🔍 Filtrar</button>
+
+        <!-- ✅ NUEVOS CAMPOS DE FECHA -->
+        <div class="col-md-2">
+            <label class="form-label">Desde</label>
+            <input type="date" name="fecha_inicio" value="<?= htmlspecialchars($fecha_inicio) ?>" class="form-control">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Hasta</label>
+            <input type="date" name="fecha_fin" value="<?= htmlspecialchars($fecha_fin) ?>" class="form-control">
+        </div>
+
+        <div class="col-md-2 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary w-100">🔍 Filtrar</button>
         </div>
     </form>
 
-    <!-- Tabla de órdenes -->
-    <table class="table table-bordered table-striped">
-        <thead class="table-dark">
+    <!-- Tabla -->
+    <table class="table table-bordered table-striped align-middle">
+        <thead class="table-dark text-center">
             <tr>
                 <th>ID</th>
                 <th>Número Orden</th>
@@ -83,6 +106,9 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <th>Prensa</th>
                 <th>Cantidad</th>
                 <th>Estado</th>
+                <th>Operador Asignado</th>
+                <th>Equipo Asignado</th>
+                <th>Firma Responsable</th>
                 <th>Fecha Inicio</th>
                 <th>Fecha Cierre</th>
                 <th>Acción</th>
@@ -90,22 +116,25 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </thead>
         <tbody>
         <?php if (empty($ordenes)): ?>
-            <tr><td colspan="10" class="text-center">⚠️ No hay órdenes encontradas.</td></tr>
+            <tr><td colspan="13" class="text-center">⚠️ No hay órdenes encontradas.</td></tr>
         <?php else: ?>
             <?php foreach ($ordenes as $o): ?>
-                <tr>
+                <tr data-id="<?= $o['id'] ?>">
                     <td><?= $o['id'] ?></td>
                     <td><?= htmlspecialchars($o['numero_orden']) ?></td>
                     <td><?= htmlspecialchars($o['numero_lote']) ?></td>
                     <td><?= htmlspecialchars($o['pieza']) ?></td>
                     <td><?= htmlspecialchars($o['prensa']) ?></td>
                     <td><?= htmlspecialchars($o['cantidad_total_lote']) ?></td>
-                    <td><?= ucfirst($o['estado']) ?></td>
-                    <td><?= $o['fecha_inicio'] ?></td>
-                    <td><?= $o['fecha_cierre'] ?? '-' ?></td>
-                    <td>
+                    <td class="estado"><?= ucfirst($o['estado']) ?></td>
+                    <td><?= htmlspecialchars($o['operador_asignado']) ?></td>
+                    <td class="equipo"><?= htmlspecialchars($o['equipo_asignado'] ?? '-') ?></td>
+                    <td class="firma"><?= htmlspecialchars($o['firma_responsable'] ?? '-') ?></td>
+                    <td><?= htmlspecialchars($o['fecha_inicio']) ?></td>
+                    <td class="fecha_cierre"><?= $o['fecha_cierre'] ?? '-' ?></td>
+                    <td class="text-center">
                         <?php if ($o['estado'] === 'abierta'): ?>
-                            <form class="cerrar-form d-flex flex-column gap-1" data-id="<?= $o['id'] ?>">
+                            <form class="cerrar-form d-flex flex-column gap-1">
                                 <input type="text" name="equipo_asignado" placeholder="Equipo asignado" class="form-control" required>
                                 <input type="text" name="firma_responsable" placeholder="Firma responsable" class="form-control" required>
                                 <button type="submit" class="btn btn-danger btn-sm mt-1">Cerrar</button>
@@ -121,14 +150,13 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </table>
 </div>
 
-<!-- JS para AJAX -->
 <script>
 document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".cerrar-form").forEach(form => {
         form.addEventListener("submit", async (e) => {
             e.preventDefault();
-
-            const ordenId = form.dataset.id;
+            const row = form.closest("tr");
+            const ordenId = row.dataset.id;
             const formData = new FormData(form);
             formData.append("orden_id", ordenId);
 
@@ -139,11 +167,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
 
                 const data = await response.json();
-
                 if (data.success) {
-                    const row = form.closest("tr");
-                    row.querySelector("td:nth-child(7)").textContent = "Cerrada"; // Estado
-                    row.querySelector("td:nth-child(9)").textContent = data.fecha_cierre; // Fecha cierre
+                    row.querySelector(".estado").textContent = "Cerrada";
+                    row.querySelector(".fecha_cierre").textContent = data.fecha_cierre;
+                    row.querySelector(".equipo").textContent = data.equipo_asignado;
+                    row.querySelector(".firma").textContent = data.firma_responsable;
                     row.querySelector("td:last-child").innerHTML = '<span class="badge bg-success">✔ Cerrada</span>';
                 } else {
                     alert("⚠ Error: " + (data.error || "No se pudo cerrar la orden"));

@@ -12,8 +12,8 @@ require 'db.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $orden_id = $_POST['orden_id'] ?? null;
-    $equipo_asignado = $_POST['equipo_asignado'] ?? '';
-    $firma_responsable = $_POST['firma_responsable'] ?? '';
+    $equipo_asignado = trim($_POST['equipo_asignado'] ?? '');
+    $firma_responsable = trim($_POST['firma_responsable'] ?? '');
     $admin_id = $_SESSION['id'];
 
     if (!$orden_id || !$equipo_asignado || !$firma_responsable) {
@@ -33,7 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'success' => true,
             'id' => $orden_id,
             'fecha_cierre' => date('Y-m-d H:i:s'),
-            'estado' => 'cerrada'
+            'estado' => 'cerrada',
+            'equipo_asignado' => $equipo_asignado,
+            'firma_responsable' => $firma_responsable
         ]);
     } else {
         http_response_code(500);
