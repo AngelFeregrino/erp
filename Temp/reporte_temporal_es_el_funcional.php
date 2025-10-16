@@ -38,15 +38,10 @@ $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <body class="bg-light">
 <?php include 'sidebar.php'; ?>
 
-<div class="content p-4">
+<div class="content">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3">📊 Reportes de Producción</h1>
-        <div>
-            <a href="generar_reporte.php?fecha=<?= urlencode($fecha) ?>" class="btn btn-danger" target="_blank">
-                📄 Descargar PDF
-            </a>
-            <a href="panel_admin.php" class="btn btn-secondary ms-2">⬅ Volver</a>
-        </div>
+        <a href="panel_admin.php" class="btn btn-secondary">⬅ Volver al Panel</a>
     </div>
 
     <!-- Filtro de fecha -->
@@ -64,21 +59,22 @@ $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
+
     <!-- Resultados -->
     <div class="card shadow-sm">
         <div class="card-header bg-dark text-white">
-            Resultados para <?= htmlspecialchars($fecha) ?>
+            Resultados para <?= $fecha ?>
         </div>
         <div class="card-body">
             <?php if (empty($resultados)): ?>
                 <div class="alert alert-info">No hay datos de producción para esta fecha.</div>
             <?php else: ?>
-                <table class="table table-bordered table-striped align-middle">
+                <table class="table table-bordered table-striped">
                     <thead class="table-dark">
                         <tr>
                             <th>Prensa</th>
                             <th>Pieza</th>
-                            <th class="text-end">Total Producido</th>
+                            <th>Total Producido</th>
                         </tr>
                     </thead>
                     <tbody>
