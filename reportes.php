@@ -43,7 +43,7 @@ $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <h1 class="h3">📊 Reportes de Producción</h1>
         <div>
             <a href="generar_reporte.php?fecha=<?= urlencode($fecha) ?>" class="btn btn-danger" target="_blank">
-                📄 Descargar PDF
+                📄 Descargar Reporte
             </a>
             <a href="panel_admin.php" class="btn btn-secondary ms-2">⬅ Volver</a>
         </div>

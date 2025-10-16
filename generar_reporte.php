@@ -18,17 +18,33 @@ $stmt = $pdo->prepare("
 $stmt->execute([$fecha]);
 $datos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+$ruta_base = dirname(__FILE__); // Debería ser C:\xampp\htdocs\erp
+
+// Define la ruta completa para la imagen
+$ruta_imagen = $ruta_base . '/img/logosinteq.jpg';
+
 ob_end_clean();
 
 class MYPDF extends TCPDF {
     public function Header() {
-        $img_file = dirname(__FILE__) . '/img/logosinterq.jpg';
+        // --- 1. CONFIGURACIÓN E IMAGEN ---
+        $img_file = dirname(__FILE__) . '/img/logosinteq.jpg';
         if (file_exists($img_file)) {
-            $this->Image($img_file, 15, 8, 25);
+            // Dibuja la imagen.
+            $this->Image($img_file, 15, 8, 40);
         }
+        
+        // --- 2. POSICIONAR CURSOR PARA EL TÍTULO ---
+        // Mueve el cursor Y a 10mm (un poco más que la posición inicial de la imagen)
+        $this->SetY(10); 
+        
+        // --- 3. DIBUJAR TÍTULO ---
         $this->SetFont('helvetica', 'B', 14);
-        $this->Cell(0, 15, 'SinterQ México - Reporte de Producción', 0, 1, 'C');
-        $this->Ln(2);
+        // La celda de 15mm de alto, se dibujará CENTRADA a partir de Y=10.
+        $this->Cell(0, 15, 'SinterQ México - Reporte de Producción', 0, 1, 'C'); 
+        
+        // --- 4. ESPACIO
+        $this->Ln(2); 
     }
 }
 
