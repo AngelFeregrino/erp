@@ -14,7 +14,7 @@ require 'db.php';
 // Fecha seleccionada (hoy por defecto)
 $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
-// Consulta de reportes
+// Consulta de reportes de producción
 $stmt = $pdo->prepare("
     SELECT pr.nombre AS prensa, pi.nombre AS pieza,
            SUM(ch.cantidad) AS total_cantidad
@@ -27,6 +27,18 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([$fecha]);
 $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Consulta de rendimientos (ajustada a tu esquema)
+$stmt2 = $pdo->prepare("
+    SELECT r.id, r.pieza_id, r.fecha, r.esperado, r.producido, r.rendimiento, r.fecha_registro,
+           pi.nombre AS pieza
+    FROM rendimientos r
+    JOIN piezas pi ON pi.id = r.pieza_id
+    WHERE r.fecha = ?
+    ORDER BY pi.nombre
+");
+$stmt2->execute([$fecha]);
+$rendimientos = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -55,7 +67,7 @@ $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="card-body">
             <form method="get" class="row g-3">
                 <div class="col-md-4">
-                    <input type="date" name="fecha" value="<?= $fecha ?>" class="form-control" required>
+                    <input type="date" name="fecha" value="<?= htmlspecialchars($fecha) ?>" class="form-control" required>
                 </div>
                 <div class="col-md-2">
                     <button type="submit" class="btn btn-success">Consultar</button>
@@ -64,10 +76,10 @@ $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
-    <!-- Resultados -->
-    <div class="card shadow-sm">
+    <!-- Resultados de producción -->
+    <div class="card shadow-sm mb-4">
         <div class="card-header bg-dark text-white">
-            Resultados para <?= htmlspecialchars($fecha) ?>
+            Resultados de Producción para <?= htmlspecialchars($fecha) ?>
         </div>
         <div class="card-body">
             <?php if (empty($resultados)): ?>
@@ -86,7 +98,42 @@ $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <tr>
                             <td><?= htmlspecialchars($r['prensa']) ?></td>
                             <td><?= htmlspecialchars($r['pieza']) ?></td>
-                            <td class="text-end"><?= number_format($r['total_cantidad']) ?></td>
+                            <td class="text-end"><?= number_format((int)$r['total_cantidad']) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Tabla de Rendimientos -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-secondary text-white">
+            Rendimientos para <?= htmlspecialchars($fecha) ?>
+        </div>
+        <div class="card-body">
+            <?php if (empty($rendimientos)): ?>
+                <div class="alert alert-warning">No hay rendimientos registrados para esta fecha.</div>
+            <?php else: ?>
+                <table class="table table-bordered table-striped align-middle">
+                    <thead class="table-secondary">
+                        <tr>
+                            <th>Pieza</th>
+                            <th class="text-end">Esperado</th>
+                            <th class="text-end">Producido</th>
+                            <th class="text-end">Rendimiento (%)</th>
+                            <th>Fecha y hora</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($rendimientos as $ren): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($ren['pieza']) ?></td>
+                            <td class="text-end"><?= number_format((int)$ren['esperado']) ?></td>
+                            <td class="text-end"><?= number_format((int)$ren['producido']) ?></td>
+                            <td class="text-end"><?= number_format((float)$ren['rendimiento'], 2) ?></td>
+                            <td><?= htmlspecialchars($ren['fecha_registro']) ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
