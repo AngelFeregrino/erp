@@ -7,6 +7,7 @@
     <a href="hojas_trabajo.php" class="nav-link"> 📄 Hojas de Trabajo</a>
     <a href="cerrar_orden.php" class="nav-link"> 🗂 Cerrar Lote Producción</a>
     <a href="reportes.php" class="nav-link">📊 Consultar Reportes</a>
+    <a href="rendimiento.php" class="nav-link">📈 Rendimientos</a>
     <a href="crear_usuario.php" class="nav-link">👤 Crear Usuarios</a>
     <a href="ingreso_piezas.php" class="nav-link">⚙️ Ingreso de Piezas</a>
     <a href="ingreso_prensas.php" class="nav-link">🛠️ Ingreso de Prensas</a>
