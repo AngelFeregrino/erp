@@ -23,16 +23,16 @@ $prensas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <body class="bg-light">
 <div class="container py-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3">👷 Panel Operador — Hola, operador <?= htmlspecialchars($nombre) ?></h1>
+        <h1 class="h1">👷 Panel Operador — Hola, operador <?= htmlspecialchars($nombre) ?></h1>
         <a href="logout.php" class="btn btn-danger">Cerrar sesión</a>
     </div>
 
-    <h4 class="mb-3">Selecciona una prensa</h4>
+    <h2 class="mb-3">Selecciona una prensa</h2>
 
     <div class="row">
         <?php foreach ($prensas as $pr): ?>
             <div class="col-md-4 mb-3">
-                <a href="panel_prensa.php?id=<?= $pr['id'] ?>" class="btn btn-primary w-100 p-3">
+                <a href="panel_prensa.php?id=<?= $pr['id'] ?>" class="btn btn-primary w-100 p-5">
                     <?= htmlspecialchars($pr['nombre']) ?>
                 </a>
             </div>

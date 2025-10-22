@@ -22,7 +22,7 @@
     top: 0;
     left: 0;
     height: 100%;   /* toda la altura */
-    width: 220px;   /* ancho fijo */
+    width: 260px;   /* ancho fijo */
     padding-top: 10px;
 }
 .sidebar a {
@@ -36,7 +36,7 @@
     color: #fff;
 }
 .content {
-    margin-left: 220px; /* espacio para el sidebar */
+    margin-left: 260px; /* espacio para el sidebar */
     padding: 20px;
 }
 </style>
