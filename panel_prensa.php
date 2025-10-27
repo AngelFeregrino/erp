@@ -21,6 +21,13 @@ $stmt = $pdo->prepare("SELECT nombre FROM prensas WHERE id=?");
 $stmt->execute([$prensa_id]);
 $prensa = $stmt->fetchColumn();
 
+// --- NUEVO BLOQUE: verificar imagen de la prensa ---
+$imagen_prensa = null;
+$ruta_imagen = "img/" . $prensa . ".jpg"; // Ejemplo: img/P01.jpg
+if (file_exists($ruta_imagen)) {
+    $imagen_prensa = $ruta_imagen;
+}
+
 // Obtener capturas del día de esa prensa
 $stmt = $pdo->prepare("
     SELECT ch.id AS captura_id, ch.hora_inicio, ch.hora_fin, ch.estado,
@@ -48,22 +55,29 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .estado-cerrada { background: green; }
         .valido { border:2px solid green; }
         .invalido { border:2px solid red; }
+        .img-prensa { max-width: 200px; border-radius:10px; }
     </style>
 </head>
 <body class="bg-light">
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h4">👷 Prensa: <?= htmlspecialchars($prensa) ?></h1>
-        <a href="panel_operador.php" class="btn btn-secondary">⬅ Volver</a>
+        <div class="d-flex align-items-center gap-3">
+            <h1 class="display-1">👷 Prensa: <?= htmlspecialchars($prensa) ?></h1>
+            <?php if ($imagen_prensa): ?>
+                <img src="<?= htmlspecialchars($imagen_prensa) ?>" alt="Foto <?= htmlspecialchars($prensa) ?>" class="img-fluid img-prensa shadow w-50">
+            
+                <?php endif; ?>
+        </div>
+        <a href="panel_operador.php" class="btn btn-secondary btn-lg">⬅ Volver</a>
     </div>
 
-    <h5 class="mb-3">Lotes activos — <?= $hoy ?></h5>
+    <h1 class="mb-3">Lotes activos — <?= $hoy ?></h1>
 
     <?php if (empty($capturas)): ?>
         <div class="alert alert-warning">No hay capturas activas hoy para esta prensa.</div>
     <?php else: ?>
         <?php foreach ($capturas as $c): ?>
-            <div class="card mb-4 shadow-sm">
+            <div class="card mb-4 shadow-lg">
                 <div class="card-header bg-primary text-white">
                     Lote <?= htmlspecialchars($c['numero_lote']) ?> — <?= htmlspecialchars($c['pieza']) ?>
                     <span class="estado-box estado-<?= $c['estado'] ?>"></span>
@@ -129,7 +143,6 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 document.querySelectorAll('.captura-form').forEach(form => {
     const inputs = form.querySelectorAll('.atributo-input');
 
-    // Validación visual
     inputs.forEach(inp => {
         inp.addEventListener('input', () => {
             const pred = parseFloat(inp.dataset.pred);
@@ -147,7 +160,6 @@ document.querySelectorAll('.captura-form').forEach(form => {
         });
     });
 
-    // Enviar AJAX
     form.addEventListener('submit', e => {
         e.preventDefault();
         const formData = new FormData(form);

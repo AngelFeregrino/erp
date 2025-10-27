@@ -24,15 +24,15 @@ $prensas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <div class="container py-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h1">👷 Panel Operador — Hola, operador <?= htmlspecialchars($nombre) ?></h1>
-        <a href="logout.php" class="btn btn-danger">Cerrar sesión</a>
+        <a href="logout.php" class="btn btn-danger btn-lg">Cerrar sesión</a>
     </div>
 
-    <h2 class="mb-3">Selecciona una prensa</h2>
+    <h1 class="mb-3">Selecciona una prensa</h1>
 
     <div class="row">
         <?php foreach ($prensas as $pr): ?>
             <div class="col-md-4 mb-3">
-                <a href="panel_prensa.php?id=<?= $pr['id'] ?>" class="btn btn-primary w-100 p-5">
+                <a href="panel_prensa.php?id=<?= $pr['id'] ?>" class="btn btn-primary w-100 p-5 fs-1">
                     <?= htmlspecialchars($pr['nombre']) ?>
                 </a>
             </div>
