@@ -43,22 +43,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
         VALUES (?, ?, ?, ?, 1)");
     $stmt2->execute([$orden_id, $fecha, $prensa_id, $pieza_id]);
 
-    // Crear franjas horarias
-    $horas = [
-        ['08:00', '09:00'],
-        ['09:00', '10:00'],
-        ['10:00', '11:00'],
-        ['11:00', '12:00'],
-        ['12:00', '13:00'],
-        ['13:00', '14:00'],
-        ['14:00', '15:00'],
-        ['15:00', '16:00']
-    ];
-    foreach ($horas as $h) {
-        $stmt2 = $pdo->prepare("INSERT INTO capturas_hora 
-            (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, estado) 
-            VALUES (?, ?, ?, ?, ?, ?, 'pendiente')");
-        $stmt2->execute([$orden_id, $fecha, $prensa_id, $pieza_id, $h[0], $h[1]]);
+    // ==============================
+    // 🔧 Crear franjas horarias dinámicas
+    // ==============================
+    date_default_timezone_set('America/Mexico_City');
+
+    // Obtener hora y minuto actuales como enteros
+    $hora_actual = intval(date('H'));   // 0..23
+    $minuto_actual = intval(date('i')); // 0..59
+
+    // Turno configurado (puedes cambiarlo)
+    $hora_inicio_turno = 8;   // 08:00
+    $hora_fin_turno = 16;     // 16:00
+
+    // Determinar la hora de inicio de las franjas a crear
+    if ($hora_actual < $hora_inicio_turno) {
+        // Antes del inicio del turno: empezar desde inicio del turno
+        $hora_inicio = $hora_inicio_turno;
+    } elseif ($hora_actual >= $hora_fin_turno) {
+        // Después del turno: no crear franjas
+        $hora_inicio = null;
+    } else {
+        // Dentro del turno: si estamos en o después de :30 pasar a la siguiente hora
+        $hora_inicio = ($minuto_actual >= 30) ? ($hora_actual + 1) : $hora_actual;
+        // Asegurar que no quede antes del inicio del turno por si acaso
+        if ($hora_inicio < $hora_inicio_turno) {
+            $hora_inicio = $hora_inicio_turno;
+        }
+    }
+
+    // Insertar franjas desde $hora_inicio hasta $hora_fin_turno (si aplica)
+    if ($hora_inicio !== null && $hora_inicio < $hora_fin_turno) {
+        for ($h = $hora_inicio; $h < $hora_fin_turno; $h++) {
+            $inicio = str_pad($h, 2, '0', STR_PAD_LEFT) . ':00';
+            $fin = str_pad($h + 1, 2, '0', STR_PAD_LEFT) . ':00';
+
+            $stmt3 = $pdo->prepare("INSERT INTO capturas_hora 
+                (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, estado) 
+                VALUES (?, ?, ?, ?, ?, ?, 'pendiente')");
+            $stmt3->execute([$orden_id, $fecha, $prensa_id, $pieza_id, $inicio, $fin]);
+        }
     }
 
     $mensaje = "✅ Prensa habilitada y orden creada con lote <b>$numero_lote</b>.";
