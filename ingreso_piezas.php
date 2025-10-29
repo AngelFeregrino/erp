@@ -6,19 +6,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion']) && $_POST['a
     try {
         $pdo->beginTransaction();
 
+        $codigo = trim($_POST['codigo']);
         $nombre = trim($_POST['nombre']);
         $tipo = trim($_POST['tipo']);
         $descripcion = trim($_POST['descripcion']);
 
-        // Insertar pieza sin código
-        $stmt = $pdo->prepare("INSERT INTO piezas (codigo, nombre, tipo, descripcion, creado_at) VALUES ('', ?, ?, ?, NOW())");
-        $stmt->execute([$nombre, $tipo, $descripcion]);
+        // Insertar pieza con código ingresado manualmente
+        $stmt = $pdo->prepare("INSERT INTO piezas (codigo, nombre, tipo, descripcion, creado_at) VALUES (?, ?, ?, ?, NOW())");
+        $stmt->execute([$codigo, $nombre, $tipo, $descripcion]);
         $pieza_id = $pdo->lastInsertId();
-
-        // Generar código
-        $codigo = strtoupper($pieza_id . substr($nombre, 0, 3) . substr($tipo, 0, 3));
-        $stmt = $pdo->prepare("UPDATE piezas SET codigo = ? WHERE id = ?");
-        $stmt->execute([$codigo, $pieza_id]);
 
         // Insertar atributos
         if (!empty($_POST['atributo_nombre'])) {
@@ -72,14 +68,22 @@ $piezas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <form method="POST" class="card p-4 shadow-sm mb-5">
         <input type="hidden" name="accion" value="crear">
+
+        <div class="mb-3">
+            <label class="form-label">Código</label>
+            <input type="text" name="codigo" class="form-control" required>
+        </div>
+
         <div class="mb-3">
             <label class="form-label">Nombre</label>
             <input type="text" name="nombre" class="form-control" required>
         </div>
+
         <div class="mb-3">
             <label class="form-label">Tipo</label>
             <input type="text" name="tipo" class="form-control" required>
         </div>
+
         <div class="mb-3">
             <label class="form-label">Descripción</label>
             <input type="text" name="descripcion" class="form-control">

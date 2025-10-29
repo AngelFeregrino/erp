@@ -31,7 +31,7 @@ if ($filtro_orden !== '') {
     $params[] = "%$filtro_orden%";
 }
 if ($filtro_lote !== '') {
-    $query .= " AND op.numero_lote LIKE ?";
+    $query .= " AND p.codigo LIKE ?";
     $params[] = "%$filtro_lote%";
 }
 
@@ -76,7 +76,7 @@ $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <input type="text" name="orden" value="<?= htmlspecialchars($filtro_orden) ?>" class="form-control">
         </div>
         <div class="col-md-2">
-            <label class="form-label">Número de Lote</label>
+            <label class="form-label">Número de Parte</label>
             <input type="text" name="lote" value="<?= htmlspecialchars($filtro_lote) ?>" class="form-control">
         </div>
 

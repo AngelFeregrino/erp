@@ -13,15 +13,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion']) && $_POST['a
     try {
         $pdo->beginTransaction();
 
+        $codigo = trim($_POST['codigo']);
         $nombre = trim($_POST['nombre']);
         $tipo = trim($_POST['tipo']);
         $descripcion = trim($_POST['descripcion']);
 
-        // Actualizar datos de la pieza
-        $stmt = $pdo->prepare("UPDATE piezas SET nombre = ?, tipo = ?, descripcion = ? WHERE id = ?");
-        $stmt->execute([$nombre, $tipo, $descripcion, $pieza_id]);
+        // ✅ Actualizar datos de la pieza (incluye el código)
+        $stmt = $pdo->prepare("UPDATE piezas SET codigo = ?, nombre = ?, tipo = ?, descripcion = ? WHERE id = ?");
+        $stmt->execute([$codigo, $nombre, $tipo, $descripcion, $pieza_id]);
 
-        // Actualizar atributos existentes
+        // --- Actualizar atributos existentes ---
         if (!empty($_POST['atributo_id'])) {
             foreach ($_POST['atributo_id'] as $i => $attr_id) {
                 $nombre_attr = $_POST['atributo_nombre'][$i];
@@ -36,7 +37,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion']) && $_POST['a
             }
         }
 
-        // Agregar nuevos atributos
+        // --- Agregar nuevos atributos ---
         if (!empty($_POST['atributo_nombre_new'])) {
             $stmt = $pdo->prepare("
                 INSERT INTO atributos_pieza (pieza_id, nombre_atributo, unidad, valor_predeterminado, tolerancia)
@@ -50,14 +51,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['accion']) && $_POST['a
             }
         }
 
-        // Eliminar atributos marcados
-        // Eliminar atributos marcados
+        // --- Eliminar atributos marcados ---
         if (!empty($_POST['atributo_eliminar'])) {
             $in = str_repeat('?,', count($_POST['atributo_eliminar']) - 1) . '?';
             $stmt = $pdo->prepare("DELETE FROM atributos_pieza WHERE id IN ($in)");
             $stmt->execute($_POST['atributo_eliminar']);
         }
-
 
         $pdo->commit();
         $mensaje = "<div class='alert alert-success'>✅ Pieza y atributos actualizados correctamente.</div>";
@@ -102,16 +101,25 @@ $atributos = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <form method="POST" class="card p-4 shadow-sm">
             <input type="hidden" name="accion" value="editar">
 
+            <!-- ✅ Campo Código -->
+            <div class="mb-3">
+                <label class="form-label">Código</label>
+                <input type="text" name="codigo" class="form-control"
+                    value="<?= htmlspecialchars($pieza['codigo']) ?>" required>
+            </div>
+
             <div class="mb-3">
                 <label class="form-label">Nombre</label>
-                <input type="text" name="nombre" class="form-control" value="<?= htmlspecialchars($pieza['nombre']) ?>"
-                    required>
+                <input type="text" name="nombre" class="form-control"
+                    value="<?= htmlspecialchars($pieza['nombre']) ?>" required>
             </div>
+
             <div class="mb-3">
                 <label class="form-label">Tipo</label>
-                <input type="text" name="tipo" class="form-control" value="<?= htmlspecialchars($pieza['tipo']) ?>"
-                    required>
+                <input type="text" name="tipo" class="form-control"
+                    value="<?= htmlspecialchars($pieza['tipo']) ?>" required>
             </div>
+
             <div class="mb-3">
                 <label class="form-label">Descripción</label>
                 <input type="text" name="descripcion" class="form-control"
@@ -183,25 +191,21 @@ $atributos = $stmt->fetchAll(PDO::FETCH_ASSOC);
             document.getElementById("atributos_nuevos").appendChild(div);
         });
 
-        // --- Eliminar atributo de la interfaz ---
-        // --- Eliminar atributo de la interfaz y marcar para borrado ---
+        // --- Eliminar atributo ---
         document.addEventListener("click", function (e) {
             if (e.target.classList.contains("remove-attr")) {
                 let row = e.target.closest(".atributo-item");
                 let idInput = row.querySelector("input[name='atributo_id[]']");
                 if (idInput) {
-                    // Crear input oculto para enviar al POST
                     let input = document.createElement("input");
                     input.type = "hidden";
                     input.name = "atributo_eliminar[]";
                     input.value = idInput.value;
                     document.querySelector("form").appendChild(input);
                 }
-                row.remove(); // Quitar de la UI
+                row.remove();
             }
         });
-
     </script>
 </body>
-
 </html>
