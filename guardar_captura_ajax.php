@@ -32,6 +32,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare("SELECT orden_id, pieza_id FROM capturas_hora WHERE id=?");
         $stmt->execute([$captura_id]);
         $cap = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$cap) {
+            throw new Exception("Captura de hora no encontrada.");
+        }
         $orden_id = $cap['orden_id'];
         $pieza_id = $cap['pieza_id'];
 
@@ -60,11 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'mensaje' => '✅ Captura registrada correctamente.',
             'total_capturado' => $total_capturado
         ]);
-
     } catch (Exception $e) {
         $pdo->rollBack();
         echo json_encode(['error' => 'Error al guardar la captura: ' . $e->getMessage()]);
     }
     exit();
 }
-?>
