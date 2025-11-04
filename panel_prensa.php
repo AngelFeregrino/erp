@@ -23,7 +23,7 @@ $prensa = $stmt->fetchColumn();
 
 // --- NUEVO BLOQUE: verificar imagen de la prensa ---
 $imagen_prensa = null;
-$ruta_imagen = "img/" . $prensa . ".jpg"; // Ejemplo: img/P01.jpg
+$ruta_imagen = "img/prensas/" . $prensa . ".jpg"; // Ejemplo: img/P01.jpg
 if (file_exists($ruta_imagen)) {
     $imagen_prensa = $ruta_imagen;
 }
@@ -31,14 +31,15 @@ if (file_exists($ruta_imagen)) {
 // Obtener capturas del día de esa prensa
 $stmt = $pdo->prepare("
     SELECT ch.id AS captura_id, ch.hora_inicio, ch.hora_fin, ch.estado,
-           pr.nombre AS prensa, pi.nombre AS pieza, ch.orden_id, ch.pieza_id,
-           op.numero_lote
-    FROM capturas_hora ch
-    JOIN prensas pr ON pr.id = ch.prensa_id
-    JOIN piezas pi ON pi.id = ch.pieza_id
-    JOIN ordenes_produccion op ON op.id = ch.orden_id
-    WHERE ch.fecha = ? AND ch.prensa_id = ?
-    ORDER BY ch.hora_inicio
+       pr.nombre AS prensa, pi.nombre AS pieza, pi.codigo,
+       ch.orden_id, ch.pieza_id, op.numero_lote
+FROM capturas_hora ch
+JOIN prensas pr ON pr.id = ch.prensa_id
+JOIN piezas pi ON pi.id = ch.pieza_id
+JOIN ordenes_produccion op ON op.id = ch.orden_id
+WHERE ch.fecha = ? AND ch.prensa_id = ?
+ORDER BY ch.hora_inicio
+
 ");
 $stmt->execute([$hoy, $prensa_id]);
 $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -122,12 +123,39 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="alert alert-warning fs-4">No hay capturas activas hoy para esta prensa.</div>
         <?php else: ?>
             <?php foreach ($capturas as $c): ?>
+                <?php
+                $imagen_pieza = null;
+                $codigo_pieza = trim($c['codigo']); // el código de la pieza, ej. 440
+
+                // Buscar archivos que empiecen con ese código en la carpeta img/piezas
+                $patron_busqueda = "img/piezas/" . $codigo_pieza . "-*";
+                $coincidencias = glob($patron_busqueda . ".{jpg,jpeg,png}", GLOB_BRACE);
+
+                // Si hay al menos un archivo que coincida, usamos el primero
+                if (!empty($coincidencias)) {
+                    $imagen_pieza = $coincidencias[0];
+                }
+                ?>
+
                 <div class="card mb-4 shadow-lg">
-                    <div class="card-header bg-primary text-white fs-4">
-                        Lote <?= htmlspecialchars($c['numero_lote']) ?> — <?= htmlspecialchars($c['pieza']) ?>
-                        <span class="estado-box estado-<?= $c['estado'] ?>"></span>
-                        <small class="fs-5">(<?= substr($c['hora_inicio'], 0, 5) ?> - <?= substr($c['hora_fin'], 0, 5) ?>)</small>
+                    <div class="card-header bg-primary text-white fs-4 d-flex justify-content-between align-items-center">
+                        <div>
+                            Lote <?= htmlspecialchars($c['numero_lote']) ?> — <?= htmlspecialchars($c['pieza']) ?>
+                            <span class="estado-box estado-<?= $c['estado'] ?>"></span>
+                            <small class="fs-5">(<?= substr($c['hora_inicio'], 0, 5) ?> - <?= substr($c['hora_fin'], 0, 5) ?>)</small>
+                        </div>
+
+                        <!-- Imagen a la derecha -->
+                        <?php if ($imagen_pieza): ?>
+                            <img src="<?= htmlspecialchars($imagen_pieza) ?>"
+                                alt="Imagen de <?= htmlspecialchars($c['pieza']) ?>"
+                                class="img-thumbnail shadow-sm"
+                                style="max-height: 200px; border-radius: 10px;">
+                        <?php else: ?>
+                            <span class="badge bg-secondary fs-6">Sin imagen</span>
+                        <?php endif; ?>
                     </div>
+
                     <div class="card-body">
                         <?php if ($c['estado'] === 'cerrada'): ?>
                             <div class="alert alert-success fs-2">✅ Esta franja ya fue capturada.</div>
@@ -169,6 +197,7 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 name="atributo[<?= $a['id'] ?>]"
                                                 class="form-control atributo-input"
                                                 value="<?= $pred ?>"
+                                                data-nombre="<?= htmlspecialchars(strtolower($a['nombre_atributo'])) ?>"
                                                 data-pred="<?= $pred ?>" data-tol="<?= $tol ?>">
                                         </div>
                                     <?php endforeach; ?>
@@ -316,6 +345,41 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
         // Ejecuta al cargar y cada minuto
         verificarFranjas();
         setInterval(verificarFranjas, 60000);
+        // --- CÁLCULO AUTOMÁTICO DE DENSIDAD ---
+        document.querySelectorAll('.captura-form').forEach(form => {
+            const inputs = form.querySelectorAll('.atributo-input');
+            let pesoInput = null;
+            let densidadInput = null;
+            let valorPredeterminado = null;
+
+            inputs.forEach(inp => {
+                const nombre = inp.dataset.nombre;
+                if (nombre.includes('peso')) {
+                    pesoInput = inp;
+                } else if (nombre.includes('densidad')) {
+                    densidadInput = inp;
+                    densidadInput.readOnly = true; // bloquear edición manual
+                } else {
+                    // Si el valor predeterminado pertenece a otra variable, no hacer nada
+                }
+            });
+
+            // Solo si existen ambos
+            if (pesoInput && densidadInput) {
+                // Guardamos el valor predeterminado de la densidad (divisor)
+                valorPredeterminado = parseFloat(densidadInput.dataset.pred);
+
+                pesoInput.addEventListener('input', () => {
+                    const peso = parseFloat(pesoInput.value);
+                    if (!isNaN(peso) && valorPredeterminado > 0) {
+                        const densidad = peso / valorPredeterminado;
+                        densidadInput.value = densidad.toFixed(3);
+                    } else {
+                        densidadInput.value = '';
+                    }
+                });
+            }
+        });
     </script>
 
 
