@@ -138,11 +138,11 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 ?>
 
                 <div class="card mb-4 shadow-lg">
-                    <div class="card-header bg-primary text-white fs-4 d-flex justify-content-between align-items-center">
+                    <div class="card-header bg-primary text-white fs-1 d-flex justify-content-between align-items-center">
                         <div>
                             Lote <?= htmlspecialchars($c['numero_lote']) ?> — <?= htmlspecialchars($c['pieza']) ?>
                             <span class="estado-box estado-<?= $c['estado'] ?>"></span>
-                            <small class="fs-5">(<?= substr($c['hora_inicio'], 0, 5) ?> - <?= substr($c['hora_fin'], 0, 5) ?>)</small>
+                            <small class="fs-1">(<?= substr($c['hora_inicio'], 0, 5) ?> - <?= substr($c['hora_fin'], 0, 5) ?>)</small>
                         </div>
 
                         <!-- Imagen a la derecha -->
@@ -158,7 +158,7 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                     <div class="card-body">
                         <?php if ($c['estado'] === 'cerrada'): ?>
-                            <div class="alert alert-success fs-2">✅ Esta franja ya fue capturada.</div>
+                            <div class="alert alert-success fs-1">✅ Esta franja ya fue capturada.</div>
                         <?php else: ?>
                             <form class="captura-form">
                                 <input type="hidden" name="captura_id" value="<?= $c['captura_id'] ?>">
@@ -298,7 +298,7 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 const finMin = hFin * 60 + mFin;
 
                 // Configuración
-                const tolerancia = 5; // minutos extra permitidos
+                const tolerancia = 10; // minutos extra permitidos
                 const avisoMinutos = 10; // cuando faltan menos de 10 minutos
                 const finConTolerancia = finMin + tolerancia;
 
@@ -344,7 +344,7 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Ejecuta al cargar y cada minuto
         verificarFranjas();
-        setInterval(verificarFranjas, 60000);
+        setInterval(verificarFranjas, 30000);
         // --- CÁLCULO AUTOMÁTICO DE DENSIDAD ---
         document.querySelectorAll('.captura-form').forEach(form => {
             const inputs = form.querySelectorAll('.atributo-input');
