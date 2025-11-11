@@ -250,22 +250,22 @@ if (!empty($rendimientos)) {
     if (file_exists($chart_path)) {
         $pdf->AddPage();
         $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Cell(0, 10, 'Gráfica de Producción (Barras)', 0, 1, 'C');
-        $pdf->Image($chart_path, 20, '', 170);
+        $pdf->Cell(0, 70, 'Gráfica de Producción (Barras)', 0, 1, 'C');
+        $pdf->Image($chart_path, 20, '90', 170);
         $pdf->Ln(10);
     }
-    $pdf->Ln(90);
+    $pdf->Ln(70);
     $pdf->SetFont('helvetica', 'I', 10);
     $pdf->Cell(0, 10, 'Generado automáticamente por el sistema de producción SinterQ', 0, 0, 'C');
     if (file_exists($line_path)) {
         $pdf->AddPage();
         $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Cell(0, 10, 'Gráfica de Tendencia (Líneas)', 0, 1, 'C');
-        $pdf->Image($line_path, 20, '', 170);
+        $pdf->Cell(0, 70, 'Gráfica de Tendencia (Líneas)', 0, 1, 'C');
+        $pdf->Image($line_path, 20, '90', 170);
     }
 }
 
-$pdf->Ln(90);
+$pdf->Ln(70);
 $pdf->SetFont('helvetica', 'I', 10);
 $pdf->Cell(0, 10, 'Generado automáticamente por el sistema de producción SinterQ', 0, 0, 'C');
 $pdf->Output('Reporte_Produccion_' . $fecha . '.pdf', 'I');
