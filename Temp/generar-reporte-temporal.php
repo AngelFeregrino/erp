@@ -226,14 +226,14 @@ if (!empty($rendimientos)) {
         $pdf->AddPage();
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 10, 'Gráfica de Producción (Barras)', 0, 1, 'C');
-        $pdf->Image($chart_path, 20, '', 170);
+        $pdf->Image($chart_path, 20, '90', 170);
         $pdf->Ln(10);
     }
     if (file_exists($line_path)) {
         $pdf->AddPage();
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 10, 'Gráfica de Tendencia (Líneas)', 0, 1, 'C');
-        $pdf->Image($line_path, 20, '', 170);
+        $pdf->Image($line_path, 20, '90', 170);
     }
 }
 
@@ -252,7 +252,7 @@ if (isset($line_path) && file_exists($line_path)) unlink($line_path);
 Sin gRAFICAS
 
 <?php
-require_once('tcpdf/tcpdf.php');
+/* require_once('tcpdf/tcpdf.php');
 require 'db.php';
 
 $fecha = $_GET['fecha'] ?? date('Y-m-d');

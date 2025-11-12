@@ -1,4 +1,4 @@
-🧑‍💼<?php
+<?php
 session_start();
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Cache-Control: post-check=0, pre-check=0", false);
@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     $fecha        = $_POST['fecha'];
     $prensa_id    = $_POST['prensa_id'];
     $pieza_id     = $_POST['pieza_id'];
+    $lote_manual  = trim($_POST['lote_manual']);
     $admin_id     = $_SESSION['id'];
 
     // Insertar orden sin número de lote todavía
@@ -30,8 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     $stmt->execute([$numero_orden, $pieza_id, $prensa_id, $fecha, $admin_id]);
     $orden_id = $pdo->lastInsertId();
 
-    // Generar numero_lote con formato YYYY-MM-DD-ID
-    $numero_lote = $fecha . "-" . $orden_id;
+    // 🔹 Generar numero_lote con formato: fecha + "-" + texto manual
+    $numero_lote = $fecha . "-" . $lote_manual;
 
     // Actualizar orden con numero_lote
     $stmtUpd = $pdo->prepare("UPDATE ordenes_produccion SET numero_lote = ? WHERE id = ?");
@@ -47,32 +48,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     // 🔧 Crear franjas horarias dinámicas
     // ==============================
     date_default_timezone_set('America/Mexico_City');
+    $hora_actual = intval(date('H'));
+    $minuto_actual = intval(date('i'));
+    $hora_inicio_turno = 8;
+    $hora_fin_turno = 16;
 
-    // Obtener hora y minuto actuales como enteros
-    $hora_actual = intval(date('H'));   // 0..23
-    $minuto_actual = intval(date('i')); // 0..59
-
-    // Turno configurado (puedes cambiarlo)
-    $hora_inicio_turno = 8;   // 08:00
-    $hora_fin_turno = 16;     // 16:00
-
-    // Determinar la hora de inicio de las franjas a crear
     if ($hora_actual < $hora_inicio_turno) {
-        // Antes del inicio del turno: empezar desde inicio del turno
         $hora_inicio = $hora_inicio_turno;
     } elseif ($hora_actual >= $hora_fin_turno) {
-        // Después del turno: no crear franjas
         $hora_inicio = null;
     } else {
-        // Dentro del turno: si estamos en o después de :30 pasar a la siguiente hora
         $hora_inicio = ($minuto_actual >= 30) ? ($hora_actual + 1) : $hora_actual;
-        // Asegurar que no quede antes del inicio del turno por si acaso
-        if ($hora_inicio < $hora_inicio_turno) {
-            $hora_inicio = $hora_inicio_turno;
-        }
+        if ($hora_inicio < $hora_inicio_turno) $hora_inicio = $hora_inicio_turno;
     }
 
-    // Insertar franjas desde $hora_inicio hasta $hora_fin_turno (si aplica)
     if ($hora_inicio !== null && $hora_inicio < $hora_fin_turno) {
         for ($h = $hora_inicio; $h < $hora_fin_turno; $h++) {
             $inicio = str_pad($h, 2, '0', STR_PAD_LEFT) . ':00';
@@ -110,7 +99,6 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <body>
     <?php include 'sidebar.php'; ?>
 
-    <!-- Contenido principal -->
     <div class="col-md-10 content bg-light">
         <h1 class="h3 mb-4">🧑‍💼 Panel Administrador</h1>
 
@@ -126,14 +114,17 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="card-body">
                 <form method="post">
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label">Número de Orden</label>
-                            <input type="text" name="numero_orden" class="form-control" placeholder="Ej: ORD-1234"
-                                required>
+                            <input type="text" name="numero_orden" class="form-control" placeholder="Ej: ORD-1234" required>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label">Fecha</label>
                             <input type="date" name="fecha" value="<?= $hoy ?>" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Código manual de lote</label>
+                            <input type="text" name="lote_manual" class="form-control" placeholder="Ej: A1, 001, TEST" required>
                         </div>
                     </div>
 
@@ -193,8 +184,6 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
 
     </div>
-    </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-
 </html>

@@ -51,10 +51,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // --- Datos ---
 $piezas = $pdo->query("SELECT * FROM piezas ORDER BY nombre")->fetchAll(PDO::FETCH_ASSOC);
-$rendimientos = $pdo->query("SELECT r.*, p.nombre AS pieza 
-                             FROM rendimientos r 
-                             JOIN piezas p ON p.id = r.pieza_id 
-                             ORDER BY r.fecha DESC")->fetchAll(PDO::FETCH_ASSOC);
+// --- Filtro de fecha ---
+$fechaFiltro = $_GET['fecha'] ?? date('Y-m-d');
+
+// --- Consultar rendimientos según fecha seleccionada ---
+$stmt = $pdo->prepare("SELECT r.*, p.nombre AS pieza 
+                       FROM rendimientos r 
+                       JOIN piezas p ON p.id = r.pieza_id 
+                       WHERE r.fecha = ?
+                       ORDER BY r.fecha DESC");
+$stmt->execute([$fechaFiltro]);
+$rendimientos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 ?>
 
 <!DOCTYPE html>
@@ -94,6 +102,13 @@ $rendimientos = $pdo->query("SELECT r.*, p.nombre AS pieza
             </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button type="submit" class="btn btn-primary w-100">💾 Guardar</button>
+            </div>
+        </form>
+        <!-- Filtro por fecha -->
+        <form method="get" class="row g-3 mb-3">
+            <div class="col-md-3">
+                <label class="form-label">📅 Filtrar por fecha</label>
+                <input type="date" name="fecha" value="<?= htmlspecialchars($fechaFiltro) ?>" class="form-control" onchange="this.form.submit()">
             </div>
         </form>
 
@@ -195,12 +210,12 @@ $rendimientos = $pdo->query("SELECT r.*, p.nombre AS pieza
                         }
                     };
 
-                    btn.addEventListener("click", guardarListener, { once: true });
+                    btn.addEventListener("click", guardarListener, {
+                        once: true
+                    });
                 });
             });
         });
-
-
     </script>
 
 </body>
