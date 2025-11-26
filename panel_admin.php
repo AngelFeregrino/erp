@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     } elseif ($hora_actual >= $hora_fin_turno) {
         $hora_inicio = null;
     } else {
-        $hora_inicio = ($minuto_actual >= 30) ? ($hora_actual + 1) : $hora_actual;
+        $hora_inicio = ($minuto_actual >= 50) ? ($hora_actual + 1) : $hora_actual;
         if ($hora_inicio < $hora_inicio_turno) $hora_inicio = $hora_inicio_turno;
     }
 
