@@ -28,18 +28,18 @@ if (file_exists($ruta_imagen)) {
     $imagen_prensa = $ruta_imagen;
 }
 
-// Obtener capturas del día de esa prensa
+// Obtener capturas del día de esa prensa (añadimos cantidad_inicio del pedido)
 $stmt = $pdo->prepare("
     SELECT ch.id AS captura_id, ch.hora_inicio, ch.hora_fin, ch.estado,
-       pr.nombre AS prensa, pi.nombre AS pieza, pi.codigo,
-       ch.orden_id, ch.pieza_id, op.numero_lote
+   pr.nombre AS prensa, pi.nombre AS pieza, pi.codigo,
+   ch.orden_id, ch.pieza_id, op.numero_orden AS numero_orden, op.numero_lote,
+   COALESCE(op.cantidad_inicio,0) AS cantidad_inicio
 FROM capturas_hora ch
 JOIN prensas pr ON pr.id = ch.prensa_id
 JOIN piezas pi ON pi.id = ch.pieza_id
 JOIN ordenes_produccion op ON op.id = ch.orden_id
 WHERE ch.fecha = ? AND ch.prensa_id = ?
 ORDER BY ch.hora_inicio
-
 ");
 $stmt->execute([$hoy, $prensa_id]);
 $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -50,57 +50,229 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <title><?= htmlspecialchars($prensa) ?> — Panel Operador</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        /* Estilos originales */
+        /* ----------------------
+           Diseño visual y accesible
+           ---------------------- */
+        :root {
+            --accent-primary: linear-gradient(90deg, #0d6efd, #5b8cff);
+            --accent-success: linear-gradient(90deg, #20c997, #63e6be);
+            --card-radius: 14px;
+            --panel-width: 320px;
+        }
+
+        body {
+            font-size: 1.05rem;
+            background: #f6f9ff;
+        }
+
+        .container {
+            max-width: 1100px;
+        }
+
+        /* Card */
+        .card {
+            border-radius: var(--card-radius);
+            overflow: hidden;
+            position: relative;
+            transition: transform .12s ease, box-shadow .12s ease;
+            cursor: pointer;
+            /* ayuda en Firefox */
+        }
+
+        .card.selected {
+            transform: translateY(-6px);
+            box-shadow: 0 18px 44px rgba(14, 30, 60, 0.18);
+        }
+
+        /* Cabecera de tarjeta: más grande y visual */
+        .card-header {
+            padding: 1.1rem 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            font-size: 1.25rem;
+        }
+
+        /* Backgrounds más vivos para estados (sobrescribimos clases bootstrap para consistencia visual) */
+        .card-header.bg-primary {
+            background: var(--accent-primary);
+            color: #fff;
+        }
+
+        .card-header.bg-success {
+            background: var(--accent-success);
+            color: #012;
+        }
+
+        .card-header .lote-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            line-height: 1;
+        }
+
+        .card-header small {
+            font-size: 0.95rem;
+            opacity: 0.95;
+            margin-left: 0.4rem;
+        }
+
+        /* Indicador de estado grande y llamativo */
         .estado-box {
             display: inline-block;
-            width: 15px;
-            height: 15px;
+            width: 22px;
+            height: 22px;
             border-radius: 50%;
             margin-left: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+            vertical-align: middle;
         }
 
         .estado-pendiente {
-            background: orange;
+            background: radial-gradient(circle at 30% 30%, #ffb347, #ff7a00);
+            border: 2px solid rgba(255, 140, 0, 0.9);
         }
 
         .estado-cerrada {
-            background: green;
+            background: radial-gradient(circle at 30% 30%, #04fd74ff, #00ff4cff);
+            border: 2px solid rgba(0, 255, 55, 1);
         }
 
+        /* Imagen de pieza */
+        .img-prensa {
+            max-width: 320px;
+            border-radius: 12px;
+            object-fit: cover;
+        }
+
+        /* Aumentar legibilidad de labels y inputs */
+        .form-label {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .form-control {
+            padding: 0.9rem 0.75rem;
+            font-size: 1.05rem;
+        }
+
+        /* Botón guardar más prominente */
+        .btn-success {
+            padding: 0.85rem 1.25rem;
+            border-radius: 10px;
+            font-size: 1.15rem;
+            box-shadow: 0 6px 18px rgba(37, 150, 190, 0.12);
+        }
+
+        /* Alertas más visibles */
+        .alert {
+            font-size: 1.05rem;
+        }
+
+        /* Validación: bordes más gruesos y efecto glow */
         .valido {
-            border: 2px solid green;
+            border: 10px solid #16a34a !important;
+            box-shadow: 0 6px 18px rgba(22, 163, 74, 0.08);
+            background: rgba(16, 185, 129, 0.04);
         }
 
         .invalido {
-            border: 2px solid red;
+            border: 10px solid #dc2626 !important;
+            box-shadow: 0 6px 18px rgba(220, 38, 38, 0.08);
+            background: rgba(220, 38, 38, 0.03);
         }
 
-        /* >>> ESTILOS AÑADIDOS PARA HACER TODO MÁS GRANDE <<< */
-        /* Aumenta el ancho máximo de la imagen para que se vea más grande */
-        .img-prensa {
-            max-width: 300px;
+        /* Ajuste para la sección de atributos: tarjetas internas */
+        .atributo-col {
+            margin-bottom: 0.8rem;
+        }
+
+        /* Badge "Sin imagen" más grande */
+        .badge.bg-secondary {
+            font-size: 0.95rem;
+            padding: 0.6rem 0.75rem;
+            border-radius: 8px;
+        }
+
+        /* Texto muy grande para el header (Prensa) */
+        .display-1 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            margin: 0;
+        }
+
+        /* Mejora de contraste para header de lista */
+        h2.display-4 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-top: 0.6rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Sticky panel (resumen) a la derecha */
+        .sticky-panel {
+            position: fixed;
+            right: 18px;
+            top: 110px;
+            width: var(--panel-width);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 18px 44px rgba(14, 30, 60, 0.16);
+            padding: 18px;
+            z-index: 1200;
+            display: none;
+        }
+
+        .sticky-panel.visible {
+            display: block;
+        }
+
+        .sticky-panel h4 {
+            margin-top: 0;
+            font-size: 1.05rem;
+            font-weight: 800;
+        }
+
+        .sticky-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 0.98rem;
+        }
+
+        .sticky-panel .btn {
+            width: 100%;
             border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 1rem;
         }
 
-        /* Aumenta el tamaño de fuente general en el cuerpo */
-        body {
-            font-size: 1.1rem;
+        /* Ajustes responsivos menores */
+        @media (max-width: 1200px) {
+            .sticky-panel {
+                display: none !important;
+            }
+
+            /* ocultar en pantallas pequeñas */
         }
 
-        /* Aumenta el tamaño de fuente en las etiquetas (labels) */
-        .form-label {
-            font-size: 1.3rem;
-            font-weight: bold;
-        }
+        @media (max-width: 768px) {
+            .img-prensa {
+                max-width: 180px;
+            }
 
-        /* Aumenta el tamaño de fuente y padding en los campos de entrada */
-        .form-control {
-            padding: 1rem 0.75rem;
-            /* Aumenta el relleno */
-            font-size: 1.25rem;
-            /* Aumenta el tamaño de la fuente */
+            .card-header {
+                font-size: 1.05rem;
+            }
+
+            .display-1 {
+                font-size: 1.6rem;
+            }
         }
     </style>
 </head>
@@ -117,7 +289,7 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <a href="panel_operador.php" class="btn btn-secondary btn-lg">⬅ Volver</a>
         </div>
 
-        <h2 class="display-4 mb-3">Lotes activos — <?= $hoy ?></h2>
+        <h2 class="display-1 mb-1">Lotes activos — <?= $hoy ?></h2>
 
         <?php if (empty($capturas)): ?>
             <div class="alert alert-warning fs-4">No hay capturas activas hoy para esta prensa.</div>
@@ -135,14 +307,43 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 if (!empty($coincidencias)) {
                     $imagen_pieza = $coincidencias[0];
                 }
+
+                // cantidad_inicio traída desde la consulta
+                $cantidad_inicio = number_format((float)$c['cantidad_inicio'], 3, '.', '');
                 ?>
 
-                <div class="card mb-4 shadow-lg">
-                    <div class="card-header bg-primary text-white fs-1 d-flex justify-content-between align-items-center">
-                        <div>
-                            Lote <?= htmlspecialchars($c['numero_lote']) ?> — <?= htmlspecialchars($c['pieza']) ?>
+                <?php
+                // seguridad: aseguramos que las variables usadas en atributos estén escapadas correctamente
+                $attr_captura_id = htmlspecialchars($c['captura_id'] ?? '', ENT_QUOTES);
+                $attr_orden_id   = htmlspecialchars($c['orden_id'] ?? '', ENT_QUOTES);
+                $attr_numero_orden = htmlspecialchars($c['numero_orden'] ?? '', ENT_QUOTES);
+                $attr_numero_lote  = htmlspecialchars($c['numero_lote'] ?? '', ENT_QUOTES);
+                $attr_cantidad_inicio = htmlspecialchars($cantidad_inicio ?? '', ENT_QUOTES);
+                ?>
+                <div class="card mb-4 shadow-lg"
+                    data-captura-id="<?= $attr_captura_id ?>"
+                    data-orden-id="<?= $attr_orden_id ?>"
+                    data-numero-orden="<?= $attr_numero_orden ?>"
+                    data-numero-lote="<?= $attr_numero_lote ?>"
+                    data-cantidad-inicio="<?= $attr_cantidad_inicio ?>"
+                    tabindex="0"
+                    role="button">
+                    <?php
+                    // Usamos clase visual distinta según estado (mejor contraste)
+                    $headerClass = $c['estado'] === 'cerrada' ? 'bg-success' : 'bg-primary';
+                    ?>
+                    <div class="card-header <?= $headerClass ?> text-white d-flex justify-content-between align-items-center">
+                        <div class="lote-info">
+                            <div>
+                                <div style="font-size:3.05rem; font-weight:800;">
+                                    Lote <?= htmlspecialchars($c['numero_lote']) ?> — <?= htmlspecialchars($c['pieza']) ?>
+                                </div>
+                                <div style="font-size:0.95rem; opacity:0.95; margin-top:4px;">
+                                    <small>(<?= substr($c['hora_inicio'], 0, 5) ?> - <?= substr($c['hora_fin'], 0, 5) ?>)</small>
+                                </div>
+                            </div>
+
                             <span class="estado-box estado-<?= $c['estado'] ?>"></span>
-                            <small class="fs-1">(<?= substr($c['hora_inicio'], 0, 5) ?> - <?= substr($c['hora_fin'], 0, 5) ?>)</small>
                         </div>
 
                         <!-- Imagen a la derecha -->
@@ -158,20 +359,18 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                     <div class="card-body">
                         <?php if ($c['estado'] === 'cerrada'): ?>
-                            <div class="alert alert-success fs-1">✅ Esta franja ya fue capturada.</div>
+                            <div class="alert alert-success fs-5">✅ Esta franja ya fue capturada.</div>
                         <?php else: ?>
                             <form class="captura-form">
                                 <input type="hidden" name="captura_id" value="<?= $c['captura_id'] ?>">
                                 <div class="row mb-3">
-                                    <div class="col-md-4">
-                                        <label class="form-label">Cantidad</label>
-                                        <input type="number" name="cantidad" class="form-control" required>
-                                    </div>
-                                    <div class="col-md-4">
+                                    <!-- Eliminado: campo Cantidad (ya no se usa) -->
+
+                                    <div class="col-md-6">
                                         <label class="form-label">Observaciones</label>
-                                        <input type="text" name="observaciones" class="form-control">
+                                        <input type="text" name="observaciones" class="form-control" placeholder="Comentarios, incidencias...">
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <label class="form-label">Firma operador</label>
                                         <input type="text" name="firma" class="form-control" required>
                                     </div>
@@ -186,24 +385,57 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     $stmt3->execute([$c['pieza_id']]);
                                     $atributos = $stmt3->fetchAll(PDO::FETCH_ASSOC);
                                     foreach ($atributos as $a):
-                                        $pred = htmlspecialchars($a['valor_predeterminado']);
+                                        // Formatear a 3 decimales los valores predeterminados
+                                        $pred_val = number_format((float)$a['valor_predeterminado'], 3, '.', '');
                                         $tol  = (float)$a['tolerancia'];
+
+                                        // detectar si es densidad o peso por nombre
+                                        $nombre_limpio = strtolower($a['nombre_atributo']);
+                                        $es_densidad = (strpos($nombre_limpio, 'densidad') !== false);
+                                        $es_peso = (strpos($nombre_limpio, 'peso') !== false);
                                     ?>
-                                        <div class="col-md-4 mb-2">
+                                        <div class="col-md-4 mb-2 atributo-col">
                                             <label class="form-label">
                                                 <?= htmlspecialchars($a['nombre_atributo']) ?> (<?= htmlspecialchars($a['unidad']) ?>)
                                             </label>
-                                            <input type="number" step="0.01"
-                                                name="atributo[<?= $a['id'] ?>]"
-                                                class="form-control atributo-input"
-                                                value="<?= $pred ?>"
-                                                data-nombre="<?= htmlspecialchars(strtolower($a['nombre_atributo'])) ?>"
-                                                data-pred="<?= $pred ?>" data-tol="<?= $tol ?>">
+
+                                            <?php if ($es_densidad): ?>
+                                                <!-- densidad: readonly, se calcula con divisor = valor_predeterminado -->
+                                                <input type="number" step="0.001"
+                                                    inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"
+                                                    name="atributo[<?= $a['id'] ?>]"
+                                                    class="form-control atributo-input densidad-input"
+                                                    value=""
+                                                    readonly
+                                                    data-nombre="<?= htmlspecialchars($nombre_limpio) ?>"
+                                                    data-pred="<?= $pred_val ?>"
+                                                    data-tol="<?= $tol ?>">
+                                            <?php elseif ($es_peso): ?>
+                                                <!-- peso: editable -->
+                                                <input type="number" step="0.001"
+                                                    inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"
+                                                    name="atributo[<?= $a['id'] ?>]"
+                                                    class="form-control atributo-input peso-input"
+                                                    value="<?= $pred_val ?>"
+                                                    data-nombre="<?= htmlspecialchars($nombre_limpio) ?>"
+                                                    data-pred="<?= $pred_val ?>"
+                                                    data-tol="<?= $tol ?>">
+                                            <?php else: ?>
+                                                <!-- otros atributos: editable -->
+                                                <input type="number" step="0.001"
+                                                    inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?"
+                                                    name="atributo[<?= $a['id'] ?>]"
+                                                    class="form-control atributo-input"
+                                                    value="<?= $pred_val ?>"
+                                                    data-nombre="<?= htmlspecialchars($nombre_limpio) ?>"
+                                                    data-pred="<?= $pred_val ?>"
+                                                    data-tol="<?= $tol ?>">
+                                            <?php endif; ?>
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
                                 <div class="text-end mt-4">
-                                    <button type="submit" class="btn btn-success btn-lg fs-3">Guardar captura</button>
+                                    <button type="submit" class="btn btn-success btn-lg">Guardar captura</button>
                                 </div>
                             </form>
                         <?php endif; ?>
@@ -213,17 +445,326 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <?php endif; ?>
     </div>
 
+    <!-- Sticky panel (resumen y acción rápida) -->
+    <div id="stickyPanel" class="sticky-panel" aria-hidden="true">
+        <h4>Resumen de franja</h4>
+        <div class="sticky-row"><span>Orden</span><strong id="spOrden">-</strong></div>
+        <div class="sticky-row"><span>Lote</span><strong id="spLote">-</strong></div>
+        <div class="sticky-row"><span>Cantidad inicio</span><strong id="spInicio">-</strong></div>
+        <div class="sticky-row"><span>Horario</span><strong id="spHorario">-</strong></div>
+        <div style="margin-top:12px;">
+            <button id="spMarkCaptured" class="btn btn-success">Marcar franja como capturada</button>
+        </div>
+        <div style="margin-top:10px;">
+            <button id="spClose" class="btn btn-outline-secondary">Cerrar panel</button>
+        </div>
+    </div>
+
     <script>
+        // ------- comportamiento principal JS -------
+        // Variables
+        const sticky = document.getElementById('stickyPanel');
+        const spOrden = document.getElementById('spOrden');
+        const spLote = document.getElementById('spLote');
+        const spInicio = document.getElementById('spInicio');
+        const spHorario = document.getElementById('spHorario');
+        const spMark = document.getElementById('spMarkCaptured');
+        const spClose = document.getElementById('spClose');
+        let selectedCard = null;
+
+        // util: sanitize numeric input (allows digits, one dot, optional leading minus)
+        function sanitizeNumericValue(str) {
+            if (typeof str !== 'string') return '';
+            // remove anything except digits, dot, minus
+            let v = str.replace(/[^0-9.\-]/g, '');
+            // keep only first minus if it's leading
+            v = v.replace(/(?!^)-/g, '');
+            // replace multiple dots keeping the first
+            const parts = v.split('.');
+            if (parts.length > 1) {
+                v = parts.shift() + '.' + parts.join('');
+            }
+            return v;
+        }
+
+        // Función para mostrar sticky con datos del card
+        function showSticky(card) {
+            if (!card) return;
+            // preferimos numero_orden (data-numero-orden -> dataset.numeroOrden)
+            const numeroOrden = card.dataset.numeroOrden || card.dataset.ordenId || '-';
+            const lote = card.dataset.numeroLote || '-';
+            const inicio = card.dataset.cantidadInicio || '-';
+            const hora = (card.querySelector('.card-header small') || {}).textContent || '-';
+
+            spOrden.textContent = numeroOrden;
+            spLote.textContent = lote;
+            spInicio.textContent = (inicio !== null && inicio !== '') ? Number(inicio).toLocaleString(undefined, {
+                minimumFractionDigits: 3,
+                maximumFractionDigits: 3
+            }) : '-';
+            spHorario.textContent = hora.trim();
+
+            sticky.classList.add('visible');
+            sticky.setAttribute('aria-hidden', 'false');
+
+            // marcar visualmente el card
+            if (selectedCard) selectedCard.classList.remove('selected');
+            selectedCard = card;
+            card.classList.add('selected');
+
+            // Guardar referencia en botón
+            spMark.dataset.capturaId = card.dataset.capturaId;
+            spMark.dataset.ordenId = card.dataset.ordenId;
+            // opcional: si quieres enviar numero de orden al servidor:
+            spMark.dataset.numeroOrden = numeroOrden;
+        }
+
+        // Cerrar sticky
+        spClose.addEventListener('click', () => {
+            sticky.classList.remove('visible');
+            sticky.setAttribute('aria-hidden', 'true');
+            if (selectedCard) selectedCard.classList.remove('selected');
+            selectedCard = null;
+        });
+
+        // Click / teclado para abrir sticky (no bloquear inputs)
+        document.querySelectorAll('.card[data-captura-id]').forEach(card => {
+            // Click: abrir sticky salvo si el click vino de un input/btn/link/select/label/textarea
+            card.addEventListener('click', (e) => {
+                const forbidden = e.target.closest('input, button, a, select, textarea, label');
+                if (forbidden) return; // dejamos que el control maneje el evento
+                showSticky(card);
+                setTimeout(() => card.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center'
+                }), 120);
+            });
+
+            // abrir con Enter/Space si el foco está en el card (pero no si foco en un input)
+            card.addEventListener('keydown', (e) => {
+                try {
+                    const active = document.activeElement;
+                    if (active) {
+                        const tag = (active.tagName || '').toUpperCase();
+                        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) {
+                            return;
+                        }
+                    }
+                } catch (err) {
+                    console.error('keydown guard error', err);
+                }
+
+                // evitar abrir desde un control interactivo dentro del card
+                const forbidden = e.target.closest('input, button, a, select, textarea, label');
+                if (forbidden) return;
+
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    showSticky(card);
+                }
+            });
+        });
+
+        // Cuando se presiona "Marcar franja como capturada" en sticky, buscamos el formulario relacionado y lo enviamos
+        spMark.addEventListener('click', async () => {
+            const capturaId = spMark.dataset.capturaId;
+            if (!capturaId) return alert('No se pudo identificar la franja seleccionada.');
+
+            const card = document.querySelector('.card[data-captura-id="' + capturaId + '"]');
+            if (!card) return alert('Franja no encontrada en la página.');
+
+            const form = card.querySelector('.captura-form');
+            if (!form) return alert('No hay formulario disponible para esta franja.');
+
+            form.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+            });
+            submitCapturaForm(form);
+        });
+
+        // función de utilidad que manda el AJAX del formulario (compartida)
+        function submitCapturaForm(form) {
+            const submitButton = form.querySelector('button[type="submit"]');
+            if (submitButton) submitButton.disabled = true;
+
+            const formData = new FormData(form);
+            fetch('guardar_captura_ajax.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const card = form.closest('.card');
+                        const successBox = document.createElement('div');
+                        successBox.className = 'alert alert-success fs-5';
+                        successBox.textContent = '✅ Captura guardada correctamente.';
+                        card.querySelector('.card-body').innerHTML = '';
+                        card.querySelector('.card-body').appendChild(successBox);
+                        const header = card.querySelector('.card-header');
+                        if (header) {
+                            header.classList.remove('bg-primary');
+                            header.classList.add('bg-success');
+                        }
+                        const estadoBox = card.querySelector('.estado-box');
+                        if (estadoBox) {
+                            estadoBox.classList.remove('estado-pendiente');
+                            estadoBox.classList.add('estado-cerrada');
+                        }
+                        if (selectedCard && selectedCard.isSameNode(card)) {
+                            spInicio.textContent = card.dataset.cantidadInicio ? Number(card.dataset.cantidadInicio).toLocaleString(undefined, {
+                                minimumFractionDigits: 3,
+                                maximumFractionDigits: 3
+                            }) : '-';
+                        }
+                    } else {
+                        alert('Error: ' + (data.error || 'Error desconocido'));
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('Error de conexión o del servidor.');
+                })
+                .finally(() => {
+                    if (submitButton) submitButton.disabled = false;
+                });
+        }
+
+        // Inicializar todos los formularios y validaciones
         document.querySelectorAll('.captura-form').forEach(form => {
             const inputs = form.querySelectorAll('.atributo-input');
 
-            // --- VALIDACIÓN DE TOLERANCIA EN TIEMPO REAL ---
+            // --- NUEVO: cálculo automático de densidad usando peso y valor_predeterminado en data-pred ---
+            const pesoInput = form.querySelector('.peso-input');
+            const densidadInput = form.querySelector('.densidad-input');
+
+            function calcularDensidad() {
+                if (!densidadInput) return;
+                const divisor = parseFloat(densidadInput.dataset.pred);
+                let pesoVal = null;
+                if (pesoInput) {
+                    const v = parseFloat(pesoInput.value);
+                    if (!isNaN(v)) pesoVal = v;
+                } else {
+                    const anyPeso = form.querySelectorAll('.atributo-input');
+                    anyPeso.forEach(inp => {
+                        const nombre = (inp.dataset.nombre || '').toLowerCase();
+                        if (pesoVal === null && nombre.includes('peso')) {
+                            const vv = parseFloat(inp.value);
+                            if (!isNaN(vv)) pesoVal = vv;
+                        }
+                    });
+                }
+
+                if (pesoVal !== null && !isNaN(divisor) && divisor > 0) {
+                    const dens = pesoVal / divisor;
+                    densidadInput.value = dens.toFixed(3);
+                    const tol = parseFloat(densidadInput.dataset.tol || 0);
+                    const pred = parseFloat(densidadInput.dataset.pred || 0);
+                    if (!isNaN(pred) && !isNaN(tol)) {
+                        if (dens >= (pred - tol) && dens <= (pred + tol)) {
+                            densidadInput.classList.add('valido');
+                            densidadInput.classList.remove('invalido');
+                        } else {
+                            densidadInput.classList.add('invalido');
+                            densidadInput.classList.remove('valido');
+                        }
+                    }
+                } else {
+                    densidadInput.value = '';
+                    densidadInput.classList.remove('valido', 'invalido');
+                }
+            }
+
+            // sanitize & allow only numeric input in atributo-inputs
+            function attachNumericSanitizers(inp) {
+                // on input sanitize characters
+                inp.addEventListener('input', (e) => {
+                    // don't sanitize readonly densidad inputs (they are computed)
+                    if (inp.classList.contains('densidad-input') && inp.readOnly) return;
+                    const orig = inp.value;
+                    const clean = sanitizeNumericValue(orig);
+                    if (clean !== orig) {
+                        const pos = inp.selectionStart;
+                        inp.value = clean;
+                        try {
+                            inp.setSelectionRange(Math.min(pos, clean.length), Math.min(pos, clean.length));
+                        } catch {}
+                    }
+                });
+
+                // allow only valid on paste
+                inp.addEventListener('paste', (e) => {
+                    const paste = (e.clipboardData || window.clipboardData).getData('text');
+                    const clean = sanitizeNumericValue(paste);
+                    if (clean === '') {
+                        e.preventDefault();
+                        return;
+                    }
+                    // replace pasted content with clean version
+                    e.preventDefault();
+                    const start = inp.selectionStart;
+                    const end = inp.selectionEnd;
+                    const before = inp.value.slice(0, start);
+                    const after = inp.value.slice(end);
+                    inp.value = before + clean + after;
+                    const newPos = before.length + clean.length;
+                    try {
+                        inp.setSelectionRange(newPos, newPos);
+                    } catch {}
+                    // trigger input event to re-evaluate validations
+                    inp.dispatchEvent(new Event('input', {
+                        bubbles: true
+                    }));
+                });
+
+                // on blur format to 3 decimals when numeric
+                inp.addEventListener('blur', () => {
+                    const v = parseFloat(inp.value);
+                    if (!isNaN(v)) {
+                        inp.value = v.toFixed(3);
+                    }
+                });
+            }
+
+            // attach sanitizers to each non-readonly atributo-input
+            inputs.forEach(inp => {
+                attachNumericSanitizers(inp);
+            });
+
+            if (pesoInput) {
+                pesoInput.addEventListener('input', () => {
+                    const pred = parseFloat(pesoInput.dataset.pred || 0);
+                    const tol = parseFloat(pesoInput.dataset.tol || 0);
+                    const val = parseFloat(pesoInput.value);
+                    if (!isNaN(val) && !isNaN(pred)) {
+                        if (val >= (pred - tol) && val <= (pred + tol)) {
+                            pesoInput.classList.add('valido');
+                            pesoInput.classList.remove('invalido');
+                        } else {
+                            pesoInput.classList.add('invalido');
+                            pesoInput.classList.remove('valido');
+                        }
+                    } else {
+                        pesoInput.classList.remove('valido', 'invalido');
+                    }
+                    calcularDensidad();
+                });
+                pesoInput.addEventListener('blur', () => {
+                    const v = parseFloat(pesoInput.value);
+                    if (!isNaN(v)) pesoInput.value = v.toFixed(3);
+                    calcularDensidad();
+                });
+            }
+
+            // Si no hay pesoInput específico, también recalculamos densidad al modificar cualquier atributo
             inputs.forEach(inp => {
                 inp.addEventListener('input', () => {
                     const pred = parseFloat(inp.dataset.pred);
                     const tol = parseFloat(inp.dataset.tol);
                     const val = parseFloat(inp.value);
-                    if (!isNaN(val)) {
+                    if (!isNaN(val) && !isNaN(pred)) {
                         if (val >= (pred - tol) && val <= (pred + tol)) {
                             inp.classList.add('valido');
                             inp.classList.remove('invalido');
@@ -234,52 +775,24 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     } else {
                         inp.classList.remove('valido', 'invalido');
                     }
+                    // recalcular densidad en cualquier cambio
+                    calcularDensidad();
                 });
+
+                // ya manejado en attachNumericSanitizers: blur formatea a 3 decimales
             });
 
-            // --- GUARDAR CAPTURA POR AJAX ---
-            form.addEventListener('submit', e => {
+            // Submit por AJAX usando la función compartida
+            form.addEventListener('submit', (e) => {
                 e.preventDefault();
-                const submitButton = form.querySelector('button[type="submit"]');
-                submitButton.disabled = true; // Deshabilita el botón al inicio
-                const formData = new FormData(form);
-                fetch('guardar_captura_ajax.php', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.mensaje);
-                            const card = form.closest('.card');
-
-                            // Reemplazar la tarjeta y actualizar el estado
-                            card.querySelector('.card-header').classList.replace('bg-primary', 'bg-success'); // Opcional: cambiar el color
-                            card.querySelector('.estado-box').classList.replace('estado-pendiente', 'estado-cerrada');
-                            card.querySelector('.card-body').innerHTML = `<div class="alert alert-success fs-2">✅ Esta franja ya fue capturada.</div>`;
-
-                            // Para que la función verificarFranjas lo ignore, actualizamos el estado en el header
-                            // Esta línea es opcional, pero ayuda a que el JS que corre cada 60s lo vea actualizado.
-                            const smallElement = card.querySelector('.card-header small');
-                            if (smallElement) {
-                                smallElement.textContent = smallElement.textContent.replace('(pendiente)', '(cerrada)');
-                            }
-                        } else {
-                            alert('Error: ' + data.error);
-                        }
-                    })
-                    .catch(err => {
-                        console.error(err);
-                        alert('Error de conexión o del servidor.'); // Mensaje de error más genérico para el usuario
-                    })
-                    .finally(() => {
-                        submitButton.disabled = false;
-                    });
+                submitCapturaForm(form);
             });
+
+            // Calcular densidad inicial al renderizar (si hay valores predeterminados)
+            calcularDensidad();
         });
 
-
-        // --- BLOQUE NUEVO: CONTROL AUTOMÁTICO DE FRANJAS POR HORA ---
+        // Ejecutar verificación de franjas (tu código original, adaptado para coexistir)
         function verificarFranjas() {
             const ahora = new Date();
             const minutosActuales = ahora.getHours() * 60 + ahora.getMinutes();
@@ -289,7 +802,6 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 const header = card.querySelector('.card-header small');
                 if (!header) return;
 
-                // Extrae el rango horario (ejemplo: "12:00 - 13:00")
                 const match = header.textContent.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
                 if (!match) return;
 
@@ -297,19 +809,15 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 const inicioMin = hInicio * 60 + mInicio;
                 const finMin = hFin * 60 + mFin;
 
-                // Configuración
-                const tolerancia = 10; // minutos extra permitidos
-                const avisoMinutos = 10; // cuando faltan menos de 10 minutos
+                const tolerancia = 10;
+                const avisoMinutos = 10;
                 const finConTolerancia = finMin + tolerancia;
 
-                // Buscar alertas previas
                 let alertaExistente = card.querySelector('.alert-tiempo');
                 let alertaFuera = card.querySelector('.alert-danger');
 
-                // Si ya está cerrada, no hacer nada
                 if (card.querySelector('.alert-success')) return;
 
-                // Si ya pasó la hora límite + tolerancia → bloquear
                 if (minutosActuales > finConTolerancia) {
                     form.querySelectorAll('input, button').forEach(el => el.disabled = true);
 
@@ -318,12 +826,11 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                     if (!alertaFuera) {
                         card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
-                            `<div class="alert alert-danger mt-2 fs-4 alert-tiempo">⏰ Franja cerrada (fuera de tiempo)</div>`
+                            `<div class="alert alert-danger mt-2 fs-5 alert-tiempo">⏰ Franja cerrada (fuera de tiempo)</div>`
                         );
                     }
                     if (alertaExistente && alertaExistente !== alertaFuera) alertaExistente.remove();
                 } else if (minutosActuales >= finMin - avisoMinutos && minutosActuales <= finConTolerancia) {
-                    // Cuando faltan menos de 10 minutos para cerrar
                     const minutosRestantes = finMin - minutosActuales;
                     if (minutosRestantes >= 0) {
                         const mensaje = `⏳ Quedan ${minutosRestantes} minuto${minutosRestantes !== 1 ? 's' : ''} para cerrar la franja`;
@@ -331,57 +838,19 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             alertaExistente.textContent = mensaje;
                         } else {
                             card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
-                                `<div class="alert alert-warning mt-2 fs-4 alert-tiempo">${mensaje}</div>`
+                                `<div class="alert alert-warning mt-2 fs-5 alert-tiempo">${mensaje}</div>`
                             );
                         }
                     }
                 } else {
-                    // Eliminar alertas si está fuera del rango de aviso
                     if (alertaExistente) alertaExistente.remove();
                 }
             });
         }
 
-        // Ejecuta al cargar y cada minuto
         verificarFranjas();
         setInterval(verificarFranjas, 30000);
-        // --- CÁLCULO AUTOMÁTICO DE DENSIDAD ---
-        document.querySelectorAll('.captura-form').forEach(form => {
-            const inputs = form.querySelectorAll('.atributo-input');
-            let pesoInput = null;
-            let densidadInput = null;
-            let valorPredeterminado = null;
-
-            inputs.forEach(inp => {
-                const nombre = inp.dataset.nombre;
-                if (nombre.includes('peso')) {
-                    pesoInput = inp;
-                } else if (nombre.includes('densidad')) {
-                    densidadInput = inp;
-                    densidadInput.readOnly = true; // bloquear edición manual
-                } else {
-                    // Si el valor predeterminado pertenece a otra variable, no hacer nada
-                }
-            });
-
-            // Solo si existen ambos
-            if (pesoInput && densidadInput) {
-                // Guardamos el valor predeterminado de la densidad (divisor)
-                valorPredeterminado = parseFloat(densidadInput.dataset.pred);
-
-                pesoInput.addEventListener('input', () => {
-                    const peso = parseFloat(pesoInput.value);
-                    if (!isNaN(peso) && valorPredeterminado > 0) {
-                        const densidad = peso / valorPredeterminado;
-                        densidadInput.value = densidad.toFixed(3);
-                    } else {
-                        densidadInput.value = '';
-                    }
-                });
-            }
-        });
     </script>
-
 
 </body>
 

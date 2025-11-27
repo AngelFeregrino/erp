@@ -13,7 +13,10 @@ $filtro_lote   = $_GET['lote'] ?? '';
 $fecha_inicio  = $_GET['fecha_inicio'] ?? '';
 $fecha_fin     = $_GET['fecha_fin'] ?? '';
 
-$query = "SELECT op.*, p.nombre AS pieza, pr.nombre AS prensa
+$query = "SELECT op.*, p.nombre AS pieza, pr.nombre AS prensa,
+                 COALESCE(op.cantidad_inicio, 0) AS cantidad_inicio,
+                 op.cantidad_final,
+                 COALESCE(op.total_producida, NULL) AS total_producida
           FROM ordenes_produccion op
           JOIN piezas p ON p.id = op.pieza_id
           JOIN prensas pr ON pr.id = op.prensa_id
@@ -47,14 +50,18 @@ $query .= " ORDER BY op.fecha_inicio DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute($params);
 $ordenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-// Calcular total de cantidades
+
+// Calcular total de cantidades: sumamos total_producida cuando exista, si no usar cantidad_total_lote
 $total_cantidad = 0;
 if (!empty($ordenes)) {
     foreach ($ordenes as $o) {
-        $total_cantidad += (int)$o['cantidad_total_lote'];
+        if ($o['total_producida'] !== null && $o['total_producida'] !== '') {
+            $total_cantidad += (int)$o['total_producida'];
+        } else {
+            $total_cantidad += (int)$o['cantidad_total_lote'];
+        }
     }
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -70,7 +77,7 @@ if (!empty($ordenes)) {
 
     <div class="col-md-10 content bg-light">
         <h1 class="h3 mb-4">🗂 Cerrar Órdenes de Producción</h1>
-        
+
         <div class="text-end mb-2 me-2">
             <span class="badge bg-primary fs-6 px-3 py-2 shadow-sm">
                 <strong>Cantidad total:</strong> <?= number_format($total_cantidad) ?>
@@ -120,7 +127,9 @@ if (!empty($ordenes)) {
                     <th>Lote</th>
                     <th>Pieza</th>
                     <th>Prensa</th>
-                    <th>Cantidad</th>
+                    <th>Inicio</th>
+                    <th>Final</th>
+                    <th>Total</th>
                     <th>Estado</th>
                     <th>Operador Asignado</th>
                     <th>Equipo Asignado</th>
@@ -133,17 +142,34 @@ if (!empty($ordenes)) {
             <tbody>
                 <?php if (empty($ordenes)): ?>
                     <tr>
-                        <td colspan="13" class="text-center">⚠️ No hay órdenes encontradas.</td>
+                        <td colspan="15" class="text-center">⚠️ No hay órdenes encontradas.</td>
                     </tr>
                 <?php else: ?>
-                    <?php foreach ($ordenes as $o): ?>
+                    <?php foreach ($ordenes as $o): 
+                        // determinar valores a mostrar
+                        $cant_inicio = (int)$o['cantidad_inicio'];
+                        $cant_final = ($o['cantidad_final'] !== null && $o['cantidad_final'] !== '') ? (int)$o['cantidad_final'] : null;
+                        // si total_producida está presente úsalo; si no, intenta calcular si hay final; si no, fallback a cantidad_total_lote
+                        if ($o['total_producida'] !== null && $o['total_producida'] !== '') {
+                            $cant_total = (int)$o['total_producida'];
+                        } elseif ($cant_final !== null) {
+                            $cant_total = $cant_final - $cant_inicio;
+                            if ($cant_total < 0) $cant_total = 0;
+                        } else {
+                            $cant_total = (int)$o['cantidad_total_lote'];
+                        }
+                    ?>
                         <tr data-id="<?= $o['id'] ?>">
                             <td><?= $o['id'] ?></td>
                             <td><?= htmlspecialchars($o['numero_orden']) ?></td>
                             <td><?= htmlspecialchars($o['numero_lote']) ?></td>
                             <td><?= htmlspecialchars($o['pieza']) ?></td>
                             <td><?= htmlspecialchars($o['prensa']) ?></td>
-                            <td><?= htmlspecialchars($o['cantidad_total_lote']) ?></td>
+
+                            <td class="text-end cant-inicio"><?= number_format($cant_inicio) ?></td>
+                            <td class="text-end cant-final"><?= $cant_final !== null ? number_format($cant_final) : '-' ?></td>
+                            <td class="text-end cant-total"><?= number_format($cant_total) ?></td>
+
                             <td class="estado"><?= ucfirst($o['estado']) ?></td>
                             <td><?= htmlspecialchars($o['operador_asignado']) ?></td>
                             <td class="equipo"><?= htmlspecialchars($o['equipo_asignado'] ?? '-') ?></td>
@@ -155,8 +181,10 @@ if (!empty($ordenes)) {
                                     <form class="cerrar-form d-flex flex-column gap-1">
                                         <input type="text" name="equipo_asignado" placeholder="Equipo asignado" class="form-control" required>
                                         <input type="text" name="firma_responsable" placeholder="Firma responsable" class="form-control" required>
+                                        <input type="number" name="cantidad_final" placeholder="Cantidad final (ej: 400000)" class="form-control" min="0" required>
                                         <button type="submit" class="btn btn-danger btn-sm mt-1">Cerrar</button>
                                     </form>
+
                                 <?php else: ?>
                                     <span class="badge bg-success">✔ Cerrada</span>
                                 <?php endif; ?>
@@ -186,11 +214,43 @@ if (!empty($ordenes)) {
 
                         const data = await response.json();
                         if (data.success) {
+                            // actualizar estado y campos visibles
                             row.querySelector(".estado").textContent = "Cerrada";
                             row.querySelector(".fecha_cierre").textContent = data.fecha_cierre;
                             row.querySelector(".equipo").textContent = data.equipo_asignado;
                             row.querySelector(".firma").textContent = data.firma_responsable;
+
+                            // actualizar inicio, final y total (si existen)
+                            const tdInicio = row.querySelector(".cant-inicio");
+                            const tdFinal = row.querySelector(".cant-final");
+                            const tdTotal = row.querySelector(".cant-total");
+
+                            if (tdInicio && data.cantidad_inicio !== undefined) {
+                                tdInicio.textContent = Number(data.cantidad_inicio).toLocaleString();
+                            }
+                            if (tdFinal && data.cantidad_final !== undefined) {
+                                tdFinal.textContent = Number(data.cantidad_final).toLocaleString();
+                            }
+                            if (tdTotal && data.total_producida !== undefined) {
+                                tdTotal.textContent = Number(data.total_producida).toLocaleString();
+                            } else if (tdTotal && data.cantidad_final !== undefined && data.cantidad_inicio !== undefined) {
+                                const total = Number(data.cantidad_final) - Number(data.cantidad_inicio);
+                                tdTotal.textContent = (total >= 0 ? total : 0).toLocaleString();
+                            }
+
+                            // reemplazar formulario por badge cerrada
                             row.querySelector("td:last-child").innerHTML = '<span class="badge bg-success">✔ Cerrada</span>';
+
+                            // actualizar contador superior (Cantidad total)
+                            // recalcular sumatorio simple en el DOM
+                            let suma = 0;
+                            document.querySelectorAll(".cant-total").forEach(td => {
+                                const txt = td.textContent.replace(/,/g,'').trim();
+                                const val = parseInt(txt) || 0;
+                                suma += val;
+                            });
+                            document.querySelector('.badge.bg-primary strong').parentNode.innerHTML =
+                                '<strong>Cantidad total:</strong> ' + suma.toLocaleString();
                         } else {
                             alert("⚠ Error: " + (data.error || "No se pudo cerrar la orden"));
                         }

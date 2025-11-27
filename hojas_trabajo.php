@@ -14,10 +14,10 @@ require 'db.php';
 // Fecha seleccionada (hoy por defecto)
 $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
-// 1. Traer todas las capturas con info básica
+// 1. Traer todas las capturas con info básica (quitamos ch.cantidad)
 $stmt = $pdo->prepare("
     SELECT ch.id AS captura_id, ch.fecha, ch.hora_inicio, ch.hora_fin,
-           ch.cantidad, ch.observaciones_op, ch.firma_operador, ch.estado,
+           ch.observaciones_op, ch.firma_operador, ch.estado,
            pr.nombre AS prensa, pi.nombre AS pieza, op.numero_orden, op.numero_lote
     FROM capturas_hora ch
     JOIN prensas pr ON pr.id = ch.prensa_id
@@ -33,17 +33,20 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $valoresPorCaptura = [];
 if ($capturas) {
     $ids = array_column($capturas, 'captura_id');
-    $in  = str_repeat('?,', count($ids) - 1) . '?';
-    $stmtVals = $pdo->prepare("
-        SELECT vh.captura_id, ap.nombre_atributo, ap.unidad, vh.valor
-        FROM valores_hora vh
-        JOIN atributos_pieza ap ON ap.id = vh.atributo_pieza_id
-        WHERE vh.captura_id IN ($in)
-        ORDER BY vh.captura_id, ap.nombre_atributo
-    ");
-    $stmtVals->execute($ids);
-    foreach ($stmtVals->fetchAll(PDO::FETCH_ASSOC) as $v) {
-        $valoresPorCaptura[$v['captura_id']][] = $v;
+    // proteger por si no hay ids (aunque el if previene)
+    if (!empty($ids)) {
+        $in  = str_repeat('?,', count($ids) - 1) . '?';
+        $stmtVals = $pdo->prepare("
+            SELECT vh.captura_id, ap.nombre_atributo, ap.unidad, vh.valor
+            FROM valores_hora vh
+            JOIN atributos_pieza ap ON ap.id = vh.atributo_pieza_id
+            WHERE vh.captura_id IN ($in)
+            ORDER BY vh.captura_id, ap.nombre_atributo
+        ");
+        $stmtVals->execute($ids);
+        foreach ($stmtVals->fetchAll(PDO::FETCH_ASSOC) as $v) {
+            $valoresPorCaptura[$v['captura_id']][] = $v;
+        }
     }
 }
 ?>
@@ -52,6 +55,7 @@ if ($capturas) {
 <head>
     <meta charset="UTF-8">
     <title>Hojas de Trabajo</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .table-slider {
@@ -68,6 +72,10 @@ if ($capturas) {
         .table-slider::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
+        /* mejor lectura en pantallas pequeñas */
+        @media (max-width: 768px) {
+            .table-slider table { font-size: 0.95rem; }
+        }
     </style>
 </head>
 <body>
@@ -79,7 +87,7 @@ if ($capturas) {
     <!-- Selector de fecha -->
     <form method="get" class="row g-3 mb-4">
         <div class="col-md-3">
-            <input type="date" name="fecha" value="<?= $fecha ?>" class="form-control">
+            <input type="date" name="fecha" value="<?= htmlspecialchars($fecha) ?>" class="form-control">
         </div>
         <div class="col-md-2">
             <button type="submit" class="btn btn-primary">Filtrar</button>
@@ -99,7 +107,7 @@ if ($capturas) {
                         <th>Pieza</th>
                         <th>N° Orden</th>
                         <th>N° Lote</th>
-                        <th>Cantidad</th>
+                        <!-- <th>Cantidad</th> eliminado -->
                         <th>Valores técnicos</th>
                         <th>Observaciones</th>
                         <th>Firma Operador</th>
@@ -110,12 +118,12 @@ if ($capturas) {
                     <?php foreach ($capturas as $c): ?>
                         <tr>
                             <td><?= htmlspecialchars($c['fecha']) ?></td>
-                            <td><?= substr($c['hora_inicio'],0,5) ?> - <?= substr($c['hora_fin'],0,5) ?></td>
+                            <td><?= htmlspecialchars(substr($c['hora_inicio'],0,5)) ?> - <?= htmlspecialchars(substr($c['hora_fin'],0,5)) ?></td>
                             <td><?= htmlspecialchars($c['prensa']) ?></td>
                             <td><?= htmlspecialchars($c['pieza']) ?></td>
                             <td><?= htmlspecialchars($c['numero_orden']) ?></td>
                             <td><?= htmlspecialchars($c['numero_lote']) ?></td>
-                            <td class="text-end"><?= $c['cantidad'] !== null ? number_format($c['cantidad']) : '-' ?></td>
+                            <!-- columna Cantidad removida -->
                             <td>
                                 <?php if (!empty($valoresPorCaptura[$c['captura_id']])): ?>
                                     <ul class="mb-0">
