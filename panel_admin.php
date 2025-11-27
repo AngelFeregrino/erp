@@ -147,36 +147,113 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
         (orden_id, fecha, prensa_id, pieza_id, habilitado) 
         VALUES (?, ?, ?, ?, 1)");
     $stmt2->execute([$orden_id, $fecha, $prensa_id, $pieza_id]);
-
     // ==============================
-    // 🔧 Crear franjas horarias dinámicas
+    // 🔧 Crear franjas horarias dinámicas (soporta turnos 08-16, 16-24 y 00-08)
     // ==============================
     date_default_timezone_set('America/Mexico_City');
-    $hora_actual = intval(date('H'));
+    $hora_actual   = intval(date('H'));
     $minuto_actual = intval(date('i'));
-    $hora_inicio_turno = 8;
-    $hora_fin_turno = 16;
 
-    if ($hora_actual < $hora_inicio_turno) {
-        $hora_inicio = $hora_inicio_turno;
-    } elseif ($hora_actual >= $hora_fin_turno) {
+    // Definimos los turnos (start inclusive, end exclusive; end puede ser 24 o 8 o 16)
+    $turnos = [
+        ['start' => 8,  'end' => 16], // 08:00 - 16:00
+        ['start' => 16, 'end' => 24], // 16:00 - 00:00 (representado como 24)
+        ['start' => 0,  'end' => 8],  // 00:00 - 08:00 (madrugada)
+    ];
+
+    // Encontrar el turno actual (el que contiene la hora actual)
+    $turno_actual = null;
+    foreach ($turnos as $t) {
+        // tratamiento especial para el turno 0..8 (madrugada)
+        if ($t['start'] <= $t['end']) {
+            if ($hora_actual >= $t['start'] && $hora_actual < $t['end']) {
+                $turno_actual = $t;
+                break;
+            }
+        } else {
+            // no se usa en este arreglo, pero se deja por si se agrega un turno que cruza medianoche
+            if ($hora_actual >= $t['start'] || $hora_actual < $t['end']) {
+                $turno_actual = $t;
+                break;
+            }
+        }
+    }
+
+    // Si la hora actual no cae dentro de ningún turno (por ejemplo habilitamos antes del inicio del primer turno),
+    // elegimos el primer turno del día (08-16) por defecto para generar franjas desde su inicio.
+    if ($turno_actual === null) {
+        $turno_actual = $turnos[0];
+    }
+
+    $shift_start = $turno_actual['start'];
+    $shift_end   = $turno_actual['end']; // puede ser 24 o 8 o 16
+
+    // Calcular hora_inicio basada en la hora actual y el umbral de minutos (>=50 => siguiente hora)
+    if ($hora_actual < $shift_start) {
+        // si habilitaron antes del inicio del turno, empezamos desde el inicio del turno
+        $hora_inicio = $shift_start;
+    } elseif ($hora_actual >= $shift_end && $shift_end > $shift_start) {
+        // si ya pasó el turno (solo aplica para turnos no cruzados), no crear franjas
         $hora_inicio = null;
     } else {
         $hora_inicio = ($minuto_actual >= 50) ? ($hora_actual + 1) : $hora_actual;
-        if ($hora_inicio < $hora_inicio_turno) $hora_inicio = $hora_inicio_turno;
-    }
-
-    if ($hora_inicio !== null && $hora_inicio < $hora_fin_turno) {
-        for ($h = $hora_inicio; $h < $hora_fin_turno; $h++) {
-            $inicio = str_pad($h, 2, '0', STR_PAD_LEFT) . ':00';
-            $fin = str_pad($h + 1, 2, '0', STR_PAD_LEFT) . ':00';
-
-            $stmt3 = $pdo->prepare("INSERT INTO capturas_hora 
-                (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, estado) 
-                VALUES (?, ?, ?, ?, ?, ?, 'pendiente')");
-            $stmt3->execute([$orden_id, $fecha, $prensa_id, $pieza_id, $inicio, $fin]);
+        // aseguramos que no empecemos antes del inicio
+        if ($shift_start <= $shift_end) {
+            if ($hora_inicio < $shift_start) $hora_inicio = $shift_start;
+        } else {
+            // en caso hipotético de un turno que cruce medianoche (no usado aquí),
+            // dejamos la hora tal cual porque manejaremos fechas con DateTime abajo.
         }
     }
+
+    if ($hora_inicio !== null) {
+        // Construimos DateTime de inicio (puede pertenecer al día $fecha o al día siguiente si corresponde)
+        // Normalizamos la hora de inicio dentro del rango del turno
+        // Si hora_inicio >= 24 reducimos 24 y movemos al día siguiente (por seguridad)
+        if ($hora_inicio >= 24) {
+            $hora_inicio -= 24;
+            $start_date = (new DateTime($fecha))->modify('+1 day');
+        } else {
+            $start_date = new DateTime($fecha);
+        }
+
+        // Ajustar la hora de $start_date al $hora_inicio calculado
+        $start_dt = DateTime::createFromFormat('Y-m-d H:i', $start_date->format('Y-m-d') . ' ' . str_pad($hora_inicio, 2, '0', STR_PAD_LEFT) . ':00');
+
+        // Construir DateTime de fin de turno ($shift_end). Si shift_end <= shift_start, significa que cruza medianoche.
+        if ($shift_end > $shift_start) {
+            // fin el mismo día (pero si shift_end == 24, lo tratamos como 00:00 del día siguiente)
+            if ($shift_end === 24) {
+                $end_dt = (new DateTime($fecha))->modify('+1 day')->setTime(0, 0);
+            } else {
+                $end_dt = DateTime::createFromFormat('Y-m-d H:i', $start_date->format('Y-m-d') . ' ' . str_pad($shift_end, 2, '0', STR_PAD_LEFT) . ':00');
+            }
+        } else {
+            // turno que cruza medianoche (ej. start 16 end 8) -> fin es día siguiente
+            $end_dt = DateTime::createFromFormat('Y-m-d H:i', $start_date->format('Y-m-d') . ' ' . str_pad($shift_end, 2, '0', STR_PAD_LEFT) . ':00')->modify('+1 day');
+        }
+
+        // Si por alguna razón start >= end (p. ej. habilitaron después del fin), no generar nada
+        if ($start_dt < $end_dt) {
+            $slot_dt = clone $start_dt;
+            while ($slot_dt < $end_dt) {
+                $slot_fin_dt = (clone $slot_dt)->modify('+1 hour');
+
+                $inicio = $slot_dt->format('H:i');
+                $fin    = $slot_fin_dt->format('H:i');
+                $slot_fecha = $slot_dt->format('Y-m-d'); // la fecha correcta (si cruza medianoche, será día siguiente)
+
+                $stmt3 = $pdo->prepare("INSERT INTO capturas_hora 
+                    (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, estado) 
+                    VALUES (?, ?, ?, ?, ?, ?, 'pendiente')");
+                $stmt3->execute([$orden_id, $slot_fecha, $prensa_id, $pieza_id, $inicio, $fin]);
+
+                // avanzar una hora
+                $slot_dt->modify('+1 hour');
+            }
+        }
+    }
+
 
     $mensaje = "✅ Prensa habilitada y orden creada con lote <b>$numero_lote</b>. Cantidad inicio registrada: <b>" . number_format($cantidad_inicio) . "</b>.";
 }
