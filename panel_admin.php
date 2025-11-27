@@ -28,7 +28,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eliminar_orden_id']))
         exit();
     }
 
-    // --- Reemplaza tu bloque dentro del try (donde haces beginTransaction y deletes) por este ---
 try {
     $pdo->beginTransaction();
 
