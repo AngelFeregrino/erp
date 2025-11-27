@@ -85,25 +85,7 @@ $rendimientos = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="col-md-10 content bg-light p-4">
         <h2 class="mb-4">📈 Rendimientos por Pieza</h2>
 
-        <!-- Formulario para registrar esperado -->
-        <form method="post" class="row g-3 mb-4">
-            <div class="col-md-4">
-                <label class="form-label">Pieza</label>
-                <select name="pieza_id" class="form-select" required>
-                    <option value="">-- Seleccionar --</option>
-                    <?php foreach ($piezas as $p): ?>
-                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['nombre']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Esperado (pzas)</label>
-                <input type="number" name="esperado" class="form-control" required>
-            </div>
-            <div class="col-md-2 d-flex align-items-end">
-                <button type="submit" class="btn btn-primary w-100">💾 Guardar</button>
-            </div>
-        </form>
+        
         <!-- Filtro por fecha -->
         <form method="get" class="row g-3 mb-3">
             <div class="col-md-3">
@@ -111,6 +93,7 @@ $rendimientos = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <input type="date" name="fecha" value="<?= htmlspecialchars($fechaFiltro) ?>" class="form-control" onchange="this.form.submit()">
             </div>
         </form>
+
 
         <!-- Tabla de rendimientos -->
         <table class="table table-bordered table-striped text-center align-middle">

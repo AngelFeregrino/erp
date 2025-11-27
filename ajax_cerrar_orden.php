@@ -99,25 +99,85 @@ try {
     $stmtCh = $pdo->prepare("UPDATE capturas_hora SET estado = 'cerrada' WHERE orden_id = ?");
     $stmtCh->execute([$orden_id]);
 
-    // === Actualizar tabla rendimientos usando total_producida ===
+        // === Actualizar tabla rendimientos usando total_producida ===
+    // Usaremos datos de la orden: pieza_id, cantidad_total_lote y numero_lote (si existe)
     $fechaHoy = date('Y-m-d');
     $pieza_id = intval($orden['pieza_id']);
+    $cantidad_total_lote = isset($orden['cantidad_total_lote']) ? intval($orden['cantidad_total_lote']) : 0;
+    $numero_lote = isset($orden['numero_lote']) ? $orden['numero_lote'] : null;
 
-    // Buscar registro existente de rendimiento para la pieza y fecha
-    $check = $pdo->prepare("SELECT id, producido, esperado FROM rendimientos WHERE pieza_id = ? AND fecha = ?");
-    $check->execute([$pieza_id, $fechaHoy]);
-    $r = $check->fetch(PDO::FETCH_ASSOC);
+    // comprobar si la tabla rendimientos tiene columnas orden_id o numero_lote (no modificamos estructura)
+    $colCheck = $pdo->prepare("
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'rendimientos'
+          AND column_name IN ('orden_id', 'numero_lote')
+    ");
+    $colCheck->execute();
+    $cols = $colCheck->fetchAll(PDO::FETCH_COLUMN);
 
-    if ($r) {
-        $nuevoProducido = intval($r['producido']) + $total_producida;
-        $esperado = floatval($r['esperado']);
-        $rendimiento = $esperado > 0 ? ($nuevoProducido / $esperado) * 100 : 0;
-        $updR = $pdo->prepare("UPDATE rendimientos SET producido = ?, rendimiento = ? WHERE id = ?");
-        $updR->execute([$nuevoProducido, $rendimiento, $r['id']]);
+    $hasOrdenId = in_array('orden_id', $cols, true);
+    $hasNumeroLote = in_array('numero_lote', $cols, true);
+
+    // Preferimos buscar por orden_id (si existe esa columna), luego por numero_lote
+    $existing = false;
+    $existingId = null;
+    if ($hasOrdenId) {
+        $chkR = $pdo->prepare("SELECT id, producido, esperado FROM rendimientos WHERE orden_id = ?");
+        $chkR->execute([$orden_id]);
+        $existing = (bool)$chkR->rowCount();
+        $r = $chkR->fetch(PDO::FETCH_ASSOC);
+        if ($existing) $existingId = $r['id'];
+    } elseif ($hasNumeroLote && $numero_lote !== null) {
+        $chkR = $pdo->prepare("SELECT id, producido, esperado FROM rendimientos WHERE numero_lote = ?");
+        $chkR->execute([$numero_lote]);
+        $existing = (bool)$chkR->rowCount();
+        $r = $chkR->fetch(PDO::FETCH_ASSOC);
+        if ($existing) $existingId = $r['id'];
     } else {
-        // Insertar nuevo registro
-        $insR = $pdo->prepare("INSERT INTO rendimientos (pieza_id, fecha, producido) VALUES (?, ?, ?)");
-        $insR->execute([$pieza_id, $fechaHoy, $total_producida]);
+        // fallback: buscar por pieza y fecha (comportamiento anterior)
+        $chkR = $pdo->prepare("SELECT id, producido, esperado FROM rendimientos WHERE pieza_id = ? AND fecha = ?");
+        $chkR->execute([$pieza_id, $fechaHoy]);
+        $existing = (bool)$chkR->rowCount();
+        $r = $chkR->fetch(PDO::FETCH_ASSOC);
+        if ($existing) $existingId = $r['id'];
+    }
+
+    // Calcular nuevo producido y rendimiento
+    $esperado = $cantidad_total_lote > 0 ? $cantidad_total_lote : (isset($r['esperado']) ? intval($r['esperado']) : 0);
+    if ($existing) {
+        // sumar producido sobre lo existente
+        $prevProducido = isset($r['producido']) ? intval($r['producido']) : 0;
+        $nuevoProducido = $prevProducido + $total_producida;
+        $rendimiento = ($esperado > 0) ? round(($nuevoProducido / $esperado) * 100, 2) : 0;
+
+        // Actualizar: si existen columnas orden_id/numero_lote no las tocamos aquí (ya están)
+        $updR = $pdo->prepare("UPDATE rendimientos SET producido = ?, rendimiento = ?, fecha_registro = NOW() WHERE id = ?");
+        $updR->execute([$nuevoProducido, $rendimiento, $existingId]);
+    } else {
+        // Insertar nuevo registro. Insertaremos los campos que existan en la tabla.
+        // Construimos INSERT dinámico según columnas disponibles (orden_id, numero_lote)
+        $fields = ['pieza_id', 'fecha', 'esperado', 'producido', 'rendimiento', 'fecha_registro'];
+        $values = [$pieza_id, $fechaHoy, $esperado, $total_producida, ($esperado > 0 ? round(($total_producida / $esperado) * 100, 2) : 0), date('Y-m-d H:i:s')];
+        $placeholders = array_fill(0, count($fields), '?');
+
+        // Si existen columnas opcionales, las agregamos y sus valores correspondientes
+        if ($hasOrdenId) {
+            array_splice($fields, 0, 0, 'orden_id'); // poner orden_id al inicio para claridad
+            array_splice($placeholders, 0, 0, '?');
+            array_splice($values, 0, 0, [$orden_id]);
+        }
+        if ($hasNumeroLote) {
+            // insertar numero_lote si está disponible (si no, null igual se inserta)
+            array_splice($fields, 1, 0, 'numero_lote'); // después de orden_id o al inicio si no existe orden_id
+            array_splice($placeholders, 1, 0, '?');
+            array_splice($values, 1, 0, [$numero_lote]);
+        }
+
+        $sqlIns = "INSERT INTO rendimientos (" . implode(',', $fields) . ") VALUES (" . implode(',', $placeholders) . ")";
+        $insR = $pdo->prepare($sqlIns);
+        $insR->execute($values);
     }
 
     $pdo->commit();

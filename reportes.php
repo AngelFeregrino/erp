@@ -15,18 +15,40 @@ require 'db.php';
 $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
 // Consulta de reportes de producción
-$stmt = $pdo->prepare("
-    SELECT pr.nombre AS prensa, pi.nombre AS pieza,
-           SUM(ch.cantidad) AS total_cantidad
-    FROM capturas_hora ch
-    JOIN prensas pr ON pr.id = ch.prensa_id
-    JOIN piezas pi ON pi.id = ch.pieza_id
-    WHERE ch.fecha = ?
-    GROUP BY pr.nombre, pi.nombre
-    ORDER BY pr.nombre, pi.nombre
-");
-$stmt->execute([$fecha]);
+// Consulta de reportes de producción (combinamos capturas_hora + órdenes cerradas)
+$sql = "
+    SELECT prensa, pieza, SUM(total_producido) AS total_cantidad
+    FROM (
+        /* 1) sumas desde capturas_hora (si aún hay datos por hora) */
+        SELECT pr.nombre AS prensa,
+               pi.nombre AS pieza,
+               IFNULL(SUM(ch.cantidad),0) AS total_producido
+        FROM capturas_hora ch
+        JOIN prensas pr ON pr.id = ch.prensa_id
+        JOIN piezas pi ON pi.id = ch.pieza_id
+        WHERE ch.fecha = ?
+        GROUP BY pr.nombre, pi.nombre
+
+        UNION ALL
+
+        /* 2) sumas desde ordenes_produccion cerradas ese día (preferir total_producida) */
+        SELECT pr2.nombre AS prensa,
+               pi2.nombre AS pieza,
+               COALESCE(op.total_producida,
+                        (COALESCE(op.cantidad_final,0) - COALESCE(op.cantidad_inicio,0)),
+                        0) AS total_producido
+        FROM ordenes_produccion op
+        JOIN prensas pr2 ON pr2.id = op.prensa_id
+        JOIN piezas pi2 ON pi2.id = op.pieza_id
+        WHERE DATE(op.fecha_cierre) = ? AND op.estado = 'cerrada'
+    ) AS unionados
+    GROUP BY prensa, pieza
+    ORDER BY prensa, pieza
+";
+$stmt = $pdo->prepare($sql);
+$stmt->execute([$fecha, $fecha]);
 $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 
 // Consulta de rendimientos (ajustada a tu esquema)
 $stmt2 = $pdo->prepare("
