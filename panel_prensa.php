@@ -98,9 +98,10 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
             font-size: 1.25rem;
         }
 
-        /* Backgrounds más vivos para estados (sobrescribimos clases bootstrap para consistencia visual) */
+        /* Color original azul -> cambiamos por gris suave (mantener texto blanco) */
         .card-header.bg-primary {
-            background: var(--accent-primary);
+            background: linear-gradient(90deg, #6c757d, #adb5bd);
+            /* gris degradado */
             color: #fff;
         }
 
@@ -116,11 +117,17 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
             line-height: 1;
         }
 
+        /* AUMENTAMOS el tamaño del <small> del horario para que visualmente sea similar a lote */
         .card-header small {
-            font-size: 0.95rem;
+            font-size: 3.05rem;
+            /* mayor que antes */
             opacity: 0.95;
             margin-left: 0.4rem;
+            display: block;
+            /* asegurar texto en su propia línea / lectura consistente */
+            line-height: 1.05;
         }
+
 
         /* Indicador de estado grande y llamativo */
         .estado-box {
@@ -794,59 +801,134 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Ejecutar verificación de franjas (tu código original, adaptado para coexistir)
         function verificarFranjas() {
-            const ahora = new Date();
-            const minutosActuales = ahora.getHours() * 60 + ahora.getMinutes();
+    const ahora = new Date();
+    const ahoraT = ahora.getTime();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const toleranciaMs = 10 * 60 * 1000; // 10 min
+    const avisoMs = 10 * 60 * 1000; // 10 min
 
-            document.querySelectorAll('.captura-form').forEach(form => {
-                const card = form.closest('.card');
-                const header = card.querySelector('.card-header small');
-                if (!header) return;
+    // helper para comparar si dos Date tienen la misma fecha local (YYYY-MM-DD)
+    function mismaFechaLocal(d1, d2) {
+        return d1.getFullYear() === d2.getFullYear()
+            && d1.getMonth() === d2.getMonth()
+            && d1.getDate() === d2.getDate();
+    }
 
-                const match = header.textContent.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
-                if (!match) return;
+    document.querySelectorAll('.captura-form').forEach(form => {
+        const card = form.closest('.card');
+        const headerEl = card.querySelector('.card-header small');
+        if (!headerEl) return;
 
-                const [_, hInicio, mInicio, hFin, mFin] = match.map(Number);
-                const inicioMin = hInicio * 60 + mInicio;
-                const finMin = hFin * 60 + mFin;
+        const txtRaw = (headerEl.textContent || '').trim();
+        const txt = txtRaw.replace(/[()]/g, '').trim();
+        const match = txt.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+        if (!match) return;
 
-                const tolerancia = 10;
-                const avisoMinutos = 10;
-                const finConTolerancia = finMin + tolerancia;
+        const hInicio = parseInt(match[1], 10);
+        const mInicio = parseInt(match[2], 10);
+        const hFin = parseInt(match[3], 10);
+        const mFin = parseInt(match[4], 10);
 
-                let alertaExistente = card.querySelector('.alert-tiempo');
-                let alertaFuera = card.querySelector('.alert-danger');
-
-                if (card.querySelector('.alert-success')) return;
-
-                if (minutosActuales > finConTolerancia) {
-                    form.querySelectorAll('input, button').forEach(el => el.disabled = true);
-
-                    const obs = form.querySelector('input[name="observaciones"]');
-                    if (obs && !obs.value) obs.value = 'Fuera de tiempo';
-
-                    if (!alertaFuera) {
-                        card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
-                            `<div class="alert alert-danger mt-2 fs-5 alert-tiempo">⏰ Franja cerrada (fuera de tiempo)</div>`
-                        );
-                    }
-                    if (alertaExistente && alertaExistente !== alertaFuera) alertaExistente.remove();
-                } else if (minutosActuales >= finMin - avisoMinutos && minutosActuales <= finConTolerancia) {
-                    const minutosRestantes = finMin - minutosActuales;
-                    if (minutosRestantes >= 0) {
-                        const mensaje = `⏳ Quedan ${minutosRestantes} minuto${minutosRestantes !== 1 ? 's' : ''} para cerrar la franja`;
-                        if (alertaExistente) {
-                            alertaExistente.textContent = mensaje;
-                        } else {
-                            card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
-                                `<div class="alert alert-warning mt-2 fs-5 alert-tiempo">${mensaje}</div>`
-                            );
-                        }
-                    }
-                } else {
-                    if (alertaExistente) alertaExistente.remove();
-                }
-            });
+        const startBase = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), hInicio, mInicio, 0, 0);
+        let endBase = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), hFin, mFin, 0, 0);
+        if (endBase.getTime() <= startBase.getTime()) {
+            endBase = new Date(endBase.getTime() + oneDayMs);
         }
+
+        const ocurrencias = [];
+        for (let offset = -1; offset <= 1; offset++) {
+            const s = new Date(startBase.getTime() + offset * oneDayMs);
+            const e = new Date(endBase.getTime() + offset * oneDayMs);
+            ocurrencias.push({ start: s, end: e });
+        }
+
+        // limpiar alertas previas creadas por script
+        const prevAlerts = card.querySelectorAll('.alert-tiempo, .alert-warning, .alert-danger');
+        prevAlerts.forEach(a => a.remove());
+        form.querySelectorAll('input, button').forEach(el => el.disabled = false);
+
+        function putClosed() {
+            form.querySelectorAll('input, button').forEach(el => el.disabled = true);
+            const obs = form.querySelector('input[name="observaciones"]');
+            if (obs && !obs.value) obs.value = 'Fuera de tiempo';
+            if (!card.querySelector('.alert-danger')) {
+                card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
+                    `<div class="alert alert-danger mt-2 fs-5 alert-tiempo">⏰ Franja cerrada (fuera de tiempo)</div>`
+                );
+            }
+        }
+        function putWarning(minutos) {
+            if (card.querySelector('.alert-danger')) return;
+            const mensaje = `⏳ Quedan ${minutos} minuto${minutos !== 1 ? 's' : ''} para cerrar la franja`;
+            card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
+                `<div class="alert alert-warning mt-2 fs-5 alert-tiempo">${mensaje}</div>`
+            );
+            form.querySelectorAll('input, button').forEach(el => el.disabled = false);
+        }
+        function clearAlerts() {
+            const a = card.querySelector('.alert-tiempo');
+            if (a) a.remove();
+            form.querySelectorAll('input, button').forEach(el => el.disabled = false);
+        }
+
+        if (card.querySelector('.alert-success')) {
+            clearAlerts();
+            return;
+        }
+
+        // 1) Si ahora está dentro de alguna ocurrencia -> ACTIVA (posible aviso)
+        for (const occ of ocurrencias) {
+            const sT = occ.start.getTime();
+            const eT = occ.end.getTime();
+            if (ahoraT >= sT && ahoraT < eT) {
+                if (ahoraT >= (eT - avisoMs) && ahoraT <= (eT + toleranciaMs)) {
+                    const minutosRestantes = Math.max(0, Math.ceil((eT - ahoraT) / 60000));
+                    putWarning(minutosRestantes);
+                } else {
+                    clearAlerts();
+                }
+                return;
+            }
+        }
+
+        // 2) Considerar futuras PERO SOLO si pertenecen al MISMO día local que "ahora"
+        const hayFuturasHoy = ocurrencias.some(occ => occ.start.getTime() > ahoraT && mismaFechaLocal(occ.start, ahora));
+        if (hayFuturasHoy) {
+            clearAlerts(); // franja aún pendiente hoy
+            return;
+        }
+
+        // 3) Buscar última pasada (la que terminó más recientemente) y decidir
+        let ultimaPasada = null;
+        for (const occ of ocurrencias) {
+            const eT = occ.end.getTime();
+            if (eT <= ahoraT) {
+                if (!ultimaPasada || eT > ultimaPasada.endT) {
+                    ultimaPasada = { endT: eT, occ };
+                }
+            }
+        }
+
+        if (ultimaPasada) {
+            const endT = ultimaPasada.endT;
+            if (ahoraT > endT + toleranciaMs) {
+                putClosed();
+                return;
+            }
+            if (ahoraT >= (endT - avisoMs) && ahoraT <= (endT + toleranciaMs)) {
+                const minutosRestantes = Math.max(0, Math.ceil((endT - ahoraT) / 60000));
+                putWarning(minutosRestantes);
+                return;
+            }
+            clearAlerts();
+            return;
+        }
+
+        clearAlerts();
+    });
+}
+
+
 
         verificarFranjas();
         setInterval(verificarFranjas, 30000);

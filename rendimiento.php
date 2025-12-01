@@ -101,8 +101,8 @@ $rendimientos = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <tr>
                     <th>Fecha</th>
                     <th>Pieza</th>
-                    <th>Esperado</th>
-                    <th>Producido</th>
+                    <th>Objetivo</th>
+                    <th>Producción Real</th>
                     <th>Rendimiento (%)</th>
                     <th>Acción</th>
                 </tr>

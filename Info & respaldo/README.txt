@@ -13,3 +13,5 @@ revisar en la base de datos que los atributos piezas tengan lo de valor predeter
 
 Eliminar Nombre de la tabla usuarios 
 crear tabla rendimientos
+
+revisar el timezone en php.ini America/Mexico_City

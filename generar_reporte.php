@@ -5,18 +5,51 @@ require 'db.php';
 $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
 // --- Consulta de producción ---
+// --- Consulta de producción (capturas_hora + ordenes_produccion + rendimientos) ---
 $stmt = $pdo->prepare("
-    SELECT pr.nombre AS prensa, pi.nombre AS pieza,
-           SUM(ch.cantidad) AS total_cantidad
-    FROM capturas_hora ch
-    JOIN prensas pr ON pr.id = ch.prensa_id
-    JOIN piezas pi ON pi.id = ch.pieza_id
-    WHERE ch.fecha = ?
-    GROUP BY pr.nombre, pi.nombre
-    ORDER BY pr.nombre, pi.nombre
+    SELECT COALESCE(MAX(NULLIF(prensa,'')), '') AS prensa,
+           pieza,
+           SUM(total_producido) AS total_cantidad
+    FROM (
+        /* 1) sumas desde capturas_hora (si aún hay datos por hora) */
+        SELECT pr.nombre AS prensa,
+               pi.nombre AS pieza,
+               IFNULL(SUM(ch.cantidad),0) AS total_producido
+        FROM capturas_hora ch
+        JOIN prensas pr ON pr.id = ch.prensa_id
+        JOIN piezas pi ON pi.id = ch.pieza_id
+        WHERE ch.fecha = ?
+        GROUP BY pr.nombre, pi.nombre
+
+        UNION ALL
+
+        /* 2) sumas desde ordenes_produccion cerradas ese día (preferir total_producida) */
+        SELECT pr2.nombre AS prensa,
+               pi2.nombre AS pieza,
+               COALESCE(op.total_producida,
+                        (COALESCE(op.cantidad_final,0) - COALESCE(op.cantidad_inicio,0)),
+                        0) AS total_producido
+        FROM ordenes_produccion op
+        JOIN prensas pr2 ON pr2.id = op.prensa_id
+        JOIN piezas pi2 ON pi2.id = op.pieza_id
+        WHERE DATE(op.fecha_cierre) = ? AND op.estado = 'cerrada'
+
+        UNION ALL
+
+        /* 3) producción real desde rendimientos (por pieza) */
+        SELECT '' AS prensa,
+               pi3.nombre AS pieza,
+               COALESCE(r.producido, 0) AS total_producido
+        FROM rendimientos r
+        JOIN piezas pi3 ON pi3.id = r.pieza_id
+        WHERE r.fecha = ?
+    ) AS unionados
+    GROUP BY pieza
+    ORDER BY prensa, pieza
 ");
-$stmt->execute([$fecha]);
+$stmt->execute([$fecha, $fecha, $fecha]);
 $datos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 
 // --- Consulta de rendimientos ---
 $stmt2 = $pdo->prepare("

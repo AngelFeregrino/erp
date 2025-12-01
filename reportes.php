@@ -14,40 +14,40 @@ require 'db.php';
 // Fecha seleccionada (hoy por defecto)
 $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
-// Consulta de reportes de producción
-// Consulta de reportes de producción (combinamos capturas_hora + órdenes cerradas)
+// === SQL corregido: producción REAL por pieza (desde rendimientos) + prensa opcional ===
 $sql = "
-    SELECT prensa, pieza, SUM(total_producido) AS total_cantidad
-    FROM (
-        /* 1) sumas desde capturas_hora (si aún hay datos por hora) */
-        SELECT pr.nombre AS prensa,
-               pi.nombre AS pieza,
-               IFNULL(SUM(ch.cantidad),0) AS total_producido
-        FROM capturas_hora ch
-        JOIN prensas pr ON pr.id = ch.prensa_id
-        JOIN piezas pi ON pi.id = ch.pieza_id
-        WHERE ch.fecha = ?
-        GROUP BY pr.nombre, pi.nombre
+    -- subconsulta que busca la prensa asociada a cada pieza (desde capturas_hora u ordenes cerradas)
+    SELECT COALESCE(pn.prensa, '') AS prensa,
+           pi.nombre AS pieza,
+           COALESCE(SUM(r.producido), 0) AS total_cantidad
+    FROM rendimientos r
+    JOIN piezas pi ON pi.id = r.pieza_id
+    LEFT JOIN (
+        SELECT pieza_id, MAX(NULLIF(prensa, '')) AS prensa
+        FROM (
+            SELECT ch.pieza_id, pr.nombre AS prensa
+            FROM capturas_hora ch
+            JOIN prensas pr ON pr.id = ch.prensa_id
+            WHERE ch.fecha = ?
 
-        UNION ALL
+            UNION ALL
 
-        /* 2) sumas desde ordenes_produccion cerradas ese día (preferir total_producida) */
-        SELECT pr2.nombre AS prensa,
-               pi2.nombre AS pieza,
-               COALESCE(op.total_producida,
-                        (COALESCE(op.cantidad_final,0) - COALESCE(op.cantidad_inicio,0)),
-                        0) AS total_producido
-        FROM ordenes_produccion op
-        JOIN prensas pr2 ON pr2.id = op.prensa_id
-        JOIN piezas pi2 ON pi2.id = op.pieza_id
-        WHERE DATE(op.fecha_cierre) = ? AND op.estado = 'cerrada'
-    ) AS unionados
-    GROUP BY prensa, pieza
-    ORDER BY prensa, pieza
+            SELECT op.pieza_id, pr2.nombre AS prensa
+            FROM ordenes_produccion op
+            JOIN prensas pr2 ON pr2.id = op.prensa_id
+            WHERE DATE(op.fecha_cierre) = ? AND op.estado = 'cerrada'
+        ) AS t
+        GROUP BY pieza_id
+    ) pn ON pn.pieza_id = r.pieza_id
+    WHERE r.fecha = ?
+    GROUP BY pn.prensa, pi.nombre
+    ORDER BY pn.prensa, pi.nombre
 ";
 $stmt = $pdo->prepare($sql);
-$stmt->execute([$fecha, $fecha]);
+$stmt->execute([$fecha, $fecha, $fecha]);
 $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+
 
 
 // Consulta de rendimientos (ajustada a tu esquema)
@@ -142,8 +142,8 @@ $rendimientos = $stmt2->fetchAll(PDO::FETCH_ASSOC);
                     <thead class="table-secondary">
                         <tr>
                             <th>Pieza</th>
-                            <th class="text-end">Esperado</th>
-                            <th class="text-end">Producido</th>
+                            <th class="text-end">Objetivo</th>
+                            <th class="text-end">Producción Real</th>
                             <th class="text-end">Rendimiento (%)</th>
                             <th>Fecha y hora</th>
                         </tr>

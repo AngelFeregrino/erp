@@ -6,13 +6,24 @@ if (!isset($_SESSION['id']) || $_SESSION['rol'] !== 'admin') {
 }
 require 'db.php';
 
+// Recuperar lista de prensas para el formulario (mostrar todas)
+$prensasListStmt = $pdo->query("SELECT id, nombre FROM prensas ORDER BY nombre");
+$prensasList = $prensasListStmt->fetchAll(PDO::FETCH_ASSOC);
+
 // Filtros
 $filtro_estado = $_GET['estado'] ?? '';
 $filtro_orden  = $_GET['orden'] ?? '';
 $filtro_lote   = $_GET['lote'] ?? '';
 $fecha_inicio  = $_GET['fecha_inicio'] ?? '';
 $fecha_fin     = $_GET['fecha_fin'] ?? '';
+// NUEVO: prensas seleccionadas (array)
+$filtro_prensas = $_GET['prensas'] ?? [];
+if (!is_array($filtro_prensas)) {
+    // si viene una sola opción como string, convertir a array
+    $filtro_prensas = [$filtro_prensas];
+}
 
+// Construir consulta base
 $query = "SELECT op.*, p.nombre AS pieza, pr.nombre AS prensa,
                  COALESCE(op.cantidad_inicio, 0) AS cantidad_inicio,
                  op.cantidad_final,
@@ -45,6 +56,17 @@ if ($fecha_inicio !== '' && $fecha_fin !== '') {
     $params[] = $fecha_fin;
 }
 
+// ✅ NUEVO FILTRO POR PRENSAS (si se seleccionaron)
+if (!empty($filtro_prensas)) {
+    // validación ligera: asegurar solo enteros
+    $prensa_ids = array_values(array_map('intval', $filtro_prensas));
+    // crear placeholders
+    $placeholders = implode(',', array_fill(0, count($prensa_ids), '?'));
+    $query .= " AND op.prensa_id IN ($placeholders)";
+    // añadir al params
+    foreach ($prensa_ids as $pid) $params[] = $pid;
+}
+
 $query .= " ORDER BY op.fecha_inicio DESC";
 
 $stmt = $pdo->prepare($query);
@@ -68,21 +90,44 @@ if (!empty($ordenes)) {
 
 <head>
     <meta charset="UTF-8">
-    <title>Cerrar Orden</title>
+    <title>Cerrar Lote</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* pequeño ajuste para que las casillas de prensas se vean bien */
+        .prensas-list { max-height: 220px; overflow-y: auto; border: 1px solid #e9ecef; padding: 8px; border-radius: 4px; background: #fff; }
+        .prensas-list label { display: block; margin-bottom: 4px; }
+    </style>
 </head>
 
 <body>
     <?php include 'sidebar.php'; ?>
 
-    <div class="col-md-10 content bg-light">
-        <h1 class="h3 mb-4">🗂 Cerrar Órdenes de Producción</h1>
+    <div class="col-md-10 content bg-light p-4">
+        <h1 class="h3 mb-4">🗂 Cerrar Lote de Producción</h1>
 
-        <div class="text-end mb-2 me-2">
-            <span class="badge bg-primary fs-6 px-3 py-2 shadow-sm">
+                <div class="text-end mb-2 me-2 d-flex justify-content-end align-items-center">
+            <!-- Badge existente -->
+            <span id="cantidadTotalBadge" class="badge bg-primary fs-6 px-3 py-2 shadow-sm">
                 <strong>Cantidad total:</strong> <?= number_format($total_cantidad) ?>
             </span>
+
+            <!-- Form minimal que abre el PDF en nueva pestaña con los mismos filtros -->
+            <form method="get" action="cerrar_orden_pdf.php" target="_blank" class="ms-2 m-0 p-0">
+                <input type="hidden" name="estado" value="<?= htmlspecialchars($filtro_estado) ?>">
+                <input type="hidden" name="orden" value="<?= htmlspecialchars($filtro_orden) ?>">
+                <input type="hidden" name="lote" value="<?= htmlspecialchars($filtro_lote) ?>">
+                <input type="hidden" name="fecha_inicio" value="<?= htmlspecialchars($fecha_inicio) ?>">
+                <input type="hidden" name="fecha_fin" value="<?= htmlspecialchars($fecha_fin) ?>">
+                <?php foreach ($filtro_prensas as $pid): ?>
+                    <input type="hidden" name="prensas[]" value="<?= (int)$pid ?>">
+                <?php endforeach; ?>
+
+                <button type="submit" class="btn btn-primary btn-sm" style="margin-left:5px;">
+                    📄 Descargar PDF Cierre
+                </button>
+            </form>
         </div>
+
 
         <!-- Filtros -->
         <form class="row g-3 mb-4" method="get">
@@ -111,6 +156,20 @@ if (!empty($ordenes)) {
             <div class="col-md-2">
                 <label class="form-label">Hasta</label>
                 <input type="date" name="fecha_fin" value="<?= htmlspecialchars($fecha_fin) ?>" class="form-control">
+            </div>
+
+            <div class="col-md-12">
+                <label class="form-label">Prensas (selecciona una o varias)</label>
+                <div class="prensas-list">
+                    <?php foreach ($prensasList as $pr): 
+                        $checked = in_array((string)$pr['id'], array_map('strval', $filtro_prensas), true) ? 'checked' : '';
+                    ?>
+                        <label>
+                            <input type="checkbox" name="prensas[]" value="<?= $pr['id'] ?>" <?= $checked ?>>
+                            <?= htmlspecialchars($pr['nombre']) ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
 
             <div class="col-md-2 d-flex align-items-end">
@@ -242,15 +301,17 @@ if (!empty($ordenes)) {
                             row.querySelector("td:last-child").innerHTML = '<span class="badge bg-success">✔ Cerrada</span>';
 
                             // actualizar contador superior (Cantidad total)
-                            // recalcular sumatorio simple en el DOM
                             let suma = 0;
                             document.querySelectorAll(".cant-total").forEach(td => {
                                 const txt = td.textContent.replace(/,/g,'').trim();
                                 const val = parseInt(txt) || 0;
                                 suma += val;
                             });
-                            document.querySelector('.badge.bg-primary strong').parentNode.innerHTML =
-                                '<strong>Cantidad total:</strong> ' + suma.toLocaleString();
+                            // actualizar badge
+                            const badge = document.getElementById('cantidadTotalBadge');
+                            if (badge) {
+                                badge.innerHTML = '<strong>Cantidad total:</strong> ' + suma.toLocaleString();
+                            }
                         } else {
                             alert("⚠ Error: " + (data.error || "No se pudo cerrar la orden"));
                         }

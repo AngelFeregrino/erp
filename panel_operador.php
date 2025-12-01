@@ -32,7 +32,7 @@ $prensas = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="row">
         <?php foreach ($prensas as $pr): ?>
             <div class="col-md-4 mb-3">
-                <a href="panel_prensa.php?id=<?= $pr['id'] ?>" class="btn btn-primary w-100 p-5 fs-1">
+                <a href="panel_prensa.php?id=<?= $pr['id'] ?>" class="btn btn-secondary w-100 p-5 fs-1">
                     <?= htmlspecialchars($pr['nombre']) ?>
                 </a>
             </div>
