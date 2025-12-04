@@ -29,25 +29,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eliminar_orden_id']))
     }
 
 try {
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->beginTransaction();
 
-    // 1) Obtener capturas asociadas para borrar valores_hora (como ya hacías)
+    $deletedCounts = [];
+
+    // 1) Capturas asociadas
     $st = $pdo->prepare("SELECT id FROM capturas_hora WHERE orden_id = ?");
     $st->execute([$orden_id]);
     $capturasIds = $st->fetchAll(PDO::FETCH_COLUMN);
 
-    // Helper: ejecutar DELETE dinámico con placeholders
-    $runInDelete = function(array $ids, $table, $col) use ($pdo) {
+    $runInDelete = function(array $ids, $table, $col) use ($pdo, &$deletedCounts) {
         if (empty($ids)) return;
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $sql = "DELETE FROM `$table` WHERE `$col` IN ($placeholders)";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($ids);
+        $deletedCounts["$table ($col)"] = $stmt->rowCount();
     };
 
-    // 1.a) Si hay capturas, borrar cualquier tabla que tenga columna captura_id
     if (!empty($capturasIds)) {
-        // buscar tablas en el esquema actual que tengan columna 'captura_id'
+        // buscar tablas con columna 'captura_id'
         $q = $pdo->prepare("
             SELECT table_name
             FROM information_schema.columns
@@ -58,17 +60,23 @@ try {
         $tables = $q->fetchAll(PDO::FETCH_COLUMN);
 
         foreach ($tables as $tbl) {
-            // evitar borrar de valores_hora/capturas_hora con lógica duplicada: lo haremos pero está OK
             $runInDelete($capturasIds, $tbl, 'captura_id');
         }
 
-        // borrar valores_hora (si existe)
+        // borrar valores_hora y capturas_hora explícitamente (por si acaso)
         $runInDelete($capturasIds, 'valores_hora', 'captura_id');
 
         // borrar capturas_hora por id
-        $runInDelete($capturasIds, 'capturas_hora', 'id');
+        // capturas_hora.id IN (...)
+        $placeholders = implode(',', array_fill(0, count($capturasIds), '?'));
+        $del = $pdo->prepare("DELETE FROM `capturas_hora` WHERE `id` IN ($placeholders)");
+        $del->execute($capturasIds);
+        $deletedCounts['capturas_hora (id)'] = $del->rowCount();
     } else {
-        // Si no hay capturas encontradas, todavía intentaremos borrar por orden_id más abajo
+        // eliminar por orden_id en capturas_hora por si no hay ids (defensivo)
+        $del = $pdo->prepare("DELETE FROM capturas_hora WHERE orden_id = ?");
+        $del->execute([$orden_id]);
+        $deletedCounts['capturas_hora (orden_id)'] = $del->rowCount();
     }
 
     // 2) Borrar tablas que referencien orden_id (dinámico)
@@ -83,27 +91,74 @@ try {
 
     foreach ($ordenCols as $row) {
         $tbl = $row['table_name'];
-        // Evitar borrar la propia ordenes_produccion hasta el final
+        $col = $row['column_name'];
         if ($tbl === 'ordenes_produccion') continue;
-        // Ejecutar DELETE FROM $tbl WHERE orden_id = ?
-        $del = $pdo->prepare("DELETE FROM `$tbl` WHERE orden_id = ?");
+        $del = $pdo->prepare("DELETE FROM `$tbl` WHERE `$col` = ?");
         $del->execute([$orden_id]);
+        $deletedCounts["$tbl ($col)"] = $del->rowCount();
     }
 
-    // 3) borrar prensas_habilitadas asociadas a la orden (si no fue borrada por la query anterior)
+    // 3) prensas_habilitadas explícito por si no se detectó
     $delPh = $pdo->prepare("DELETE FROM prensas_habilitadas WHERE orden_id = ?");
     $delPh->execute([$orden_id]);
+    $deletedCounts['prensas_habilitadas (orden_id)'] = $delPh->rowCount();
 
     // 4) borrar la orden en ordenes_produccion (la última)
     $delOrd = $pdo->prepare("DELETE FROM ordenes_produccion WHERE id = ?");
     $delOrd->execute([$orden_id]);
+    $deletedCounts['ordenes_produccion (id)'] = $delOrd->rowCount();
 
     $pdo->commit();
-    $_SESSION['mensaje'] = "✅ Orden $orden_id y sus datos fueron eliminados correctamente.";
+
+    // Verificación final: buscar tablas que contienen filas todavía con la orden_id
+    $remaining = [];
+    $q3 = $pdo->prepare("
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND column_name LIKE '%orden%';
+    ");
+    $q3->execute();
+    $colsLikeOrden = $q3->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($colsLikeOrden as $colRow) {
+        $tbl = $colRow['table_name'];
+        $col  = $colRow['column_name'];
+        // construir consulta segura (no parámetros en nombre de tabla/col)
+        $sql = "SELECT COUNT(*) FROM `$tbl` WHERE `$col` = ?";
+        $chk = $pdo->prepare($sql);
+        $chk->execute([$orden_id]);
+        $cnt = intval($chk->fetchColumn());
+        if ($cnt > 0) $remaining["$tbl.$col"] = $cnt;
+    }
+
+    // también comprobar ordenes_produccion
+    $chkOrd = $pdo->prepare("SELECT COUNT(*) FROM ordenes_produccion WHERE id = ?");
+    $chkOrd->execute([$orden_id]);
+    $cntOrd = intval($chkOrd->fetchColumn());
+    if ($cntOrd > 0) $remaining['ordenes_produccion.id'] = $cntOrd;
+
+    // Generar mensaje legible
+    $msg = "✅ Eliminación completada. Detalle filas eliminadas: ";
+    foreach ($deletedCounts as $k => $v) {
+        $msg .= "<br>• $k : $v";
+    }
+    if (empty($remaining)) {
+        $msg .= "<br><b>No se encontraron referencias restantes a la orden $orden_id.</b>";
+    } else {
+        $msg .= "<br><b>¡ATENCIÓN! Quedan referencias a la orden $orden_id:</b>";
+        foreach ($remaining as $k => $v) {
+            $msg .= "<br>• $k => $v filas";
+        }
+        $msg .= "<br>Revisa estas tablas y el código que lista las órdenes (p.e. 'Cerrar orden').";
+    }
+
+    $_SESSION['mensaje'] = $msg;
 } catch (Exception $e) {
     $pdo->rollBack();
-    $_SESSION['mensaje'] = "❌ Error al eliminar orden $orden_id: " . $e->getMessage();
+    $_SESSION['mensaje'] = "❌ Error al eliminar orden $orden_id: " . htmlspecialchars($e->getMessage());
 }
+
 
     // redirigir para limpiar POST y mostrar mensaje
     header("Location: " . $_SERVER['PHP_SELF']);
