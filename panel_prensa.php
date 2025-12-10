@@ -28,20 +28,32 @@ if (file_exists($ruta_imagen)) {
     $imagen_prensa = $ruta_imagen;
 }
 
-// Obtener capturas del día de esa prensa (añadimos cantidad_inicio del pedido)
+// Obtener capturas: incluir franjas con fecha = hoy
+// y además franjas iniciadas AYER que pertenezcan a un turno nocturno (turno = 3).
+// Para ello hacemos LEFT JOIN con prensas_habilitadas (donde se guarda el turno por orden+fecha).
+$ayer = (new DateTime($hoy))->modify('-1 day')->format('Y-m-d');
+
 $stmt = $pdo->prepare("
-    SELECT ch.id AS captura_id, ch.hora_inicio, ch.hora_fin, ch.estado,
-   pr.nombre AS prensa, pi.nombre AS pieza, pi.codigo,
-   ch.orden_id, ch.pieza_id, op.numero_orden AS numero_orden, op.numero_lote,
-   COALESCE(op.cantidad_inicio,0) AS cantidad_inicio
-FROM capturas_hora ch
-JOIN prensas pr ON pr.id = ch.prensa_id
-JOIN piezas pi ON pi.id = ch.pieza_id
-JOIN ordenes_produccion op ON op.id = ch.orden_id
-WHERE ch.fecha = ? AND ch.prensa_id = ?
-ORDER BY ch.hora_inicio
-");
-$stmt->execute([$hoy, $prensa_id]);
+    SELECT ch.id AS captura_id,
+           ch.hora_inicio, ch.hora_fin, ch.estado,
+           pr.nombre AS prensa, pi.nombre AS pieza, pi.codigo,
+           ch.orden_id, ch.pieza_id,
+           op.numero_orden AS numero_orden, op.numero_lote,
+           COALESCE(op.cantidad_inicio,0) AS cantidad_inicio,
+           ph.turno AS prensa_turno
+    FROM capturas_hora ch
+    JOIN prensas pr ON pr.id = ch.prensa_id
+    JOIN piezas pi ON pi.id = ch.pieza_id
+    JOIN ordenes_produccion op ON op.id = ch.orden_id
+    LEFT JOIN prensas_habilitadas ph
+        ON ph.orden_id = ch.orden_id
+       AND ph.prensa_id = ch.prensa_id
+       AND ph.fecha = ch.fecha
+    WHERE (ch.fecha = ?)
+       OR (ch.fecha = ? AND ph.turno = 3) -- incluir nocturnas iniciadas ayer
+      AND ch.prensa_id = ?
+    ORDER BY ch.fecha, ch.hora_inicio");
+$stmt->execute([$hoy, $ayer, $prensa_id]);
 $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
@@ -801,132 +813,140 @@ $capturas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Ejecutar verificación de franjas (tu código original, adaptado para coexistir)
         function verificarFranjas() {
-    const ahora = new Date();
-    const ahoraT = ahora.getTime();
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    const toleranciaMs = 10 * 60 * 1000; // 10 min
-    const avisoMs = 10 * 60 * 1000; // 10 min
+            const ahora = new Date();
+            const ahoraT = ahora.getTime();
+            const oneDayMs = 24 * 60 * 60 * 1000;
+            const toleranciaMs = 10 * 60 * 1000; // 10 min
+            const avisoMs = 10 * 60 * 1000; // 10 min
 
-    // helper para comparar si dos Date tienen la misma fecha local (YYYY-MM-DD)
-    function mismaFechaLocal(d1, d2) {
-        return d1.getFullYear() === d2.getFullYear()
-            && d1.getMonth() === d2.getMonth()
-            && d1.getDate() === d2.getDate();
-    }
-
-    document.querySelectorAll('.captura-form').forEach(form => {
-        const card = form.closest('.card');
-        const headerEl = card.querySelector('.card-header small');
-        if (!headerEl) return;
-
-        const txtRaw = (headerEl.textContent || '').trim();
-        const txt = txtRaw.replace(/[()]/g, '').trim();
-        const match = txt.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
-        if (!match) return;
-
-        const hInicio = parseInt(match[1], 10);
-        const mInicio = parseInt(match[2], 10);
-        const hFin = parseInt(match[3], 10);
-        const mFin = parseInt(match[4], 10);
-
-        const startBase = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), hInicio, mInicio, 0, 0);
-        let endBase = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), hFin, mFin, 0, 0);
-        if (endBase.getTime() <= startBase.getTime()) {
-            endBase = new Date(endBase.getTime() + oneDayMs);
-        }
-
-        const ocurrencias = [];
-        for (let offset = -1; offset <= 1; offset++) {
-            const s = new Date(startBase.getTime() + offset * oneDayMs);
-            const e = new Date(endBase.getTime() + offset * oneDayMs);
-            ocurrencias.push({ start: s, end: e });
-        }
-
-        // limpiar alertas previas creadas por script
-        const prevAlerts = card.querySelectorAll('.alert-tiempo, .alert-warning, .alert-danger');
-        prevAlerts.forEach(a => a.remove());
-        form.querySelectorAll('input, button').forEach(el => el.disabled = false);
-
-        function putClosed() {
-            form.querySelectorAll('input, button').forEach(el => el.disabled = true);
-            const obs = form.querySelector('input[name="observaciones"]');
-            if (obs && !obs.value) obs.value = 'Fuera de tiempo';
-            if (!card.querySelector('.alert-danger')) {
-                card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
-                    `<div class="alert alert-danger mt-2 fs-5 alert-tiempo">⏰ Franja cerrada (fuera de tiempo)</div>`
-                );
+            // helper para comparar si dos Date tienen la misma fecha local (YYYY-MM-DD)
+            function mismaFechaLocal(d1, d2) {
+                return d1.getFullYear() === d2.getFullYear() &&
+                    d1.getMonth() === d2.getMonth() &&
+                    d1.getDate() === d2.getDate();
             }
-        }
-        function putWarning(minutos) {
-            if (card.querySelector('.alert-danger')) return;
-            const mensaje = `⏳ Quedan ${minutos} minuto${minutos !== 1 ? 's' : ''} para cerrar la franja`;
-            card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
-                `<div class="alert alert-warning mt-2 fs-5 alert-tiempo">${mensaje}</div>`
-            );
-            form.querySelectorAll('input, button').forEach(el => el.disabled = false);
-        }
-        function clearAlerts() {
-            const a = card.querySelector('.alert-tiempo');
-            if (a) a.remove();
-            form.querySelectorAll('input, button').forEach(el => el.disabled = false);
-        }
 
-        if (card.querySelector('.alert-success')) {
-            clearAlerts();
-            return;
-        }
+            document.querySelectorAll('.captura-form').forEach(form => {
+                const card = form.closest('.card');
+                const headerEl = card.querySelector('.card-header small');
+                if (!headerEl) return;
 
-        // 1) Si ahora está dentro de alguna ocurrencia -> ACTIVA (posible aviso)
-        for (const occ of ocurrencias) {
-            const sT = occ.start.getTime();
-            const eT = occ.end.getTime();
-            if (ahoraT >= sT && ahoraT < eT) {
-                if (ahoraT >= (eT - avisoMs) && ahoraT <= (eT + toleranciaMs)) {
-                    const minutosRestantes = Math.max(0, Math.ceil((eT - ahoraT) / 60000));
-                    putWarning(minutosRestantes);
-                } else {
+                const txtRaw = (headerEl.textContent || '').trim();
+                const txt = txtRaw.replace(/[()]/g, '').trim();
+                const match = txt.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+                if (!match) return;
+
+                const hInicio = parseInt(match[1], 10);
+                const mInicio = parseInt(match[2], 10);
+                const hFin = parseInt(match[3], 10);
+                const mFin = parseInt(match[4], 10);
+
+                const startBase = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), hInicio, mInicio, 0, 0);
+                let endBase = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), hFin, mFin, 0, 0);
+                if (endBase.getTime() <= startBase.getTime()) {
+                    endBase = new Date(endBase.getTime() + oneDayMs);
+                }
+
+                const ocurrencias = [];
+                for (let offset = -1; offset <= 1; offset++) {
+                    const s = new Date(startBase.getTime() + offset * oneDayMs);
+                    const e = new Date(endBase.getTime() + offset * oneDayMs);
+                    ocurrencias.push({
+                        start: s,
+                        end: e
+                    });
+                }
+
+                // limpiar alertas previas creadas por script
+                const prevAlerts = card.querySelectorAll('.alert-tiempo, .alert-warning, .alert-danger');
+                prevAlerts.forEach(a => a.remove());
+                form.querySelectorAll('input, button').forEach(el => el.disabled = false);
+
+                function putClosed() {
+                    form.querySelectorAll('input, button').forEach(el => el.disabled = true);
+                    const obs = form.querySelector('input[name="observaciones"]');
+                    if (obs && !obs.value) obs.value = 'Fuera de tiempo';
+                    if (!card.querySelector('.alert-danger')) {
+                        card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
+                            `<div class="alert alert-danger mt-2 fs-5 alert-tiempo">⏰ Franja cerrada (fuera de tiempo)</div>`
+                        );
+                    }
+                }
+
+                function putWarning(minutos) {
+                    if (card.querySelector('.alert-danger')) return;
+                    const mensaje = `⏳ Quedan ${minutos} minuto${minutos !== 1 ? 's' : ''} para cerrar la franja`;
+                    card.querySelector('.card-body').insertAdjacentHTML('afterbegin',
+                        `<div class="alert alert-warning mt-2 fs-5 alert-tiempo">${mensaje}</div>`
+                    );
+                    form.querySelectorAll('input, button').forEach(el => el.disabled = false);
+                }
+
+                function clearAlerts() {
+                    const a = card.querySelector('.alert-tiempo');
+                    if (a) a.remove();
+                    form.querySelectorAll('input, button').forEach(el => el.disabled = false);
+                }
+
+                if (card.querySelector('.alert-success')) {
                     clearAlerts();
+                    return;
                 }
-                return;
-            }
-        }
 
-        // 2) Considerar futuras PERO SOLO si pertenecen al MISMO día local que "ahora"
-        const hayFuturasHoy = ocurrencias.some(occ => occ.start.getTime() > ahoraT && mismaFechaLocal(occ.start, ahora));
-        if (hayFuturasHoy) {
-            clearAlerts(); // franja aún pendiente hoy
-            return;
-        }
-
-        // 3) Buscar última pasada (la que terminó más recientemente) y decidir
-        let ultimaPasada = null;
-        for (const occ of ocurrencias) {
-            const eT = occ.end.getTime();
-            if (eT <= ahoraT) {
-                if (!ultimaPasada || eT > ultimaPasada.endT) {
-                    ultimaPasada = { endT: eT, occ };
+                // 1) Si ahora está dentro de alguna ocurrencia -> ACTIVA (posible aviso)
+                for (const occ of ocurrencias) {
+                    const sT = occ.start.getTime();
+                    const eT = occ.end.getTime();
+                    if (ahoraT >= sT && ahoraT < eT) {
+                        if (ahoraT >= (eT - avisoMs) && ahoraT <= (eT + toleranciaMs)) {
+                            const minutosRestantes = Math.max(0, Math.ceil((eT - ahoraT) / 60000));
+                            putWarning(minutosRestantes);
+                        } else {
+                            clearAlerts();
+                        }
+                        return;
+                    }
                 }
-            }
-        }
 
-        if (ultimaPasada) {
-            const endT = ultimaPasada.endT;
-            if (ahoraT > endT + toleranciaMs) {
-                putClosed();
-                return;
-            }
-            if (ahoraT >= (endT - avisoMs) && ahoraT <= (endT + toleranciaMs)) {
-                const minutosRestantes = Math.max(0, Math.ceil((endT - ahoraT) / 60000));
-                putWarning(minutosRestantes);
-                return;
-            }
-            clearAlerts();
-            return;
-        }
+                // 2) Considerar futuras PERO SOLO si pertenecen al MISMO día local que "ahora"
+                const hayFuturasHoy = ocurrencias.some(occ => occ.start.getTime() > ahoraT && mismaFechaLocal(occ.start, ahora));
+                if (hayFuturasHoy) {
+                    clearAlerts(); // franja aún pendiente hoy
+                    return;
+                }
 
-        clearAlerts();
-    });
-}
+                // 3) Buscar última pasada (la que terminó más recientemente) y decidir
+                let ultimaPasada = null;
+                for (const occ of ocurrencias) {
+                    const eT = occ.end.getTime();
+                    if (eT <= ahoraT) {
+                        if (!ultimaPasada || eT > ultimaPasada.endT) {
+                            ultimaPasada = {
+                                endT: eT,
+                                occ
+                            };
+                        }
+                    }
+                }
+
+                if (ultimaPasada) {
+                    const endT = ultimaPasada.endT;
+                    if (ahoraT > endT + toleranciaMs) {
+                        putClosed();
+                        return;
+                    }
+                    if (ahoraT >= (endT - avisoMs) && ahoraT <= (endT + toleranciaMs)) {
+                        const minutosRestantes = Math.max(0, Math.ceil((endT - ahoraT) / 60000));
+                        putWarning(minutosRestantes);
+                        return;
+                    }
+                    clearAlerts();
+                    return;
+                }
+
+                clearAlerts();
+            });
+        }
 
 
 

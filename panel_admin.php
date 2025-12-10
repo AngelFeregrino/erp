@@ -28,136 +28,136 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['eliminar_orden_id']))
         exit();
     }
 
-try {
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->beginTransaction();
+    try {
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->beginTransaction();
 
-    $deletedCounts = [];
+        $deletedCounts = [];
 
-    // 1) Capturas asociadas
-    $st = $pdo->prepare("SELECT id FROM capturas_hora WHERE orden_id = ?");
-    $st->execute([$orden_id]);
-    $capturasIds = $st->fetchAll(PDO::FETCH_COLUMN);
+        // 1) Capturas asociadas
+        $st = $pdo->prepare("SELECT id FROM capturas_hora WHERE orden_id = ?");
+        $st->execute([$orden_id]);
+        $capturasIds = $st->fetchAll(PDO::FETCH_COLUMN);
 
-    $runInDelete = function(array $ids, $table, $col) use ($pdo, &$deletedCounts) {
-        if (empty($ids)) return;
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $sql = "DELETE FROM `$table` WHERE `$col` IN ($placeholders)";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($ids);
-        $deletedCounts["$table ($col)"] = $stmt->rowCount();
-    };
+        $runInDelete = function (array $ids, $table, $col) use ($pdo, &$deletedCounts) {
+            if (empty($ids)) return;
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $sql = "DELETE FROM `$table` WHERE `$col` IN ($placeholders)";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($ids);
+            $deletedCounts["$table ($col)"] = $stmt->rowCount();
+        };
 
-    if (!empty($capturasIds)) {
-        // buscar tablas con columna 'captura_id'
-        $q = $pdo->prepare("
+        if (!empty($capturasIds)) {
+            // buscar tablas con columna 'captura_id'
+            $q = $pdo->prepare("
             SELECT table_name
             FROM information_schema.columns
             WHERE table_schema = DATABASE()
               AND column_name = 'captura_id'
         ");
-        $q->execute();
-        $tables = $q->fetchAll(PDO::FETCH_COLUMN);
+            $q->execute();
+            $tables = $q->fetchAll(PDO::FETCH_COLUMN);
 
-        foreach ($tables as $tbl) {
-            $runInDelete($capturasIds, $tbl, 'captura_id');
+            foreach ($tables as $tbl) {
+                $runInDelete($capturasIds, $tbl, 'captura_id');
+            }
+
+            // borrar valores_hora y capturas_hora explícitamente (por si acaso)
+            $runInDelete($capturasIds, 'valores_hora', 'captura_id');
+
+            // borrar capturas_hora por id
+            // capturas_hora.id IN (...)
+            $placeholders = implode(',', array_fill(0, count($capturasIds), '?'));
+            $del = $pdo->prepare("DELETE FROM `capturas_hora` WHERE `id` IN ($placeholders)");
+            $del->execute($capturasIds);
+            $deletedCounts['capturas_hora (id)'] = $del->rowCount();
+        } else {
+            // eliminar por orden_id en capturas_hora por si no hay ids (defensivo)
+            $del = $pdo->prepare("DELETE FROM capturas_hora WHERE orden_id = ?");
+            $del->execute([$orden_id]);
+            $deletedCounts['capturas_hora (orden_id)'] = $del->rowCount();
         }
 
-        // borrar valores_hora y capturas_hora explícitamente (por si acaso)
-        $runInDelete($capturasIds, 'valores_hora', 'captura_id');
-
-        // borrar capturas_hora por id
-        // capturas_hora.id IN (...)
-        $placeholders = implode(',', array_fill(0, count($capturasIds), '?'));
-        $del = $pdo->prepare("DELETE FROM `capturas_hora` WHERE `id` IN ($placeholders)");
-        $del->execute($capturasIds);
-        $deletedCounts['capturas_hora (id)'] = $del->rowCount();
-    } else {
-        // eliminar por orden_id en capturas_hora por si no hay ids (defensivo)
-        $del = $pdo->prepare("DELETE FROM capturas_hora WHERE orden_id = ?");
-        $del->execute([$orden_id]);
-        $deletedCounts['capturas_hora (orden_id)'] = $del->rowCount();
-    }
-
-    // 2) Borrar tablas que referencien orden_id (dinámico)
-    $q2 = $pdo->prepare("
+        // 2) Borrar tablas que referencien orden_id (dinámico)
+        $q2 = $pdo->prepare("
         SELECT table_name, column_name
         FROM information_schema.columns
         WHERE table_schema = DATABASE()
           AND column_name = 'orden_id'
     ");
-    $q2->execute();
-    $ordenCols = $q2->fetchAll(PDO::FETCH_ASSOC);
+        $q2->execute();
+        $ordenCols = $q2->fetchAll(PDO::FETCH_ASSOC);
 
-    foreach ($ordenCols as $row) {
-        $tbl = $row['table_name'];
-        $col = $row['column_name'];
-        if ($tbl === 'ordenes_produccion') continue;
-        $del = $pdo->prepare("DELETE FROM `$tbl` WHERE `$col` = ?");
-        $del->execute([$orden_id]);
-        $deletedCounts["$tbl ($col)"] = $del->rowCount();
-    }
+        foreach ($ordenCols as $row) {
+            $tbl = $row['table_name'];
+            $col = $row['column_name'];
+            if ($tbl === 'ordenes_produccion') continue;
+            $del = $pdo->prepare("DELETE FROM `$tbl` WHERE `$col` = ?");
+            $del->execute([$orden_id]);
+            $deletedCounts["$tbl ($col)"] = $del->rowCount();
+        }
 
-    // 3) prensas_habilitadas explícito por si no se detectó
-    $delPh = $pdo->prepare("DELETE FROM prensas_habilitadas WHERE orden_id = ?");
-    $delPh->execute([$orden_id]);
-    $deletedCounts['prensas_habilitadas (orden_id)'] = $delPh->rowCount();
+        // 3) prensas_habilitadas explícito por si no se detectó
+        $delPh = $pdo->prepare("DELETE FROM prensas_habilitadas WHERE orden_id = ?");
+        $delPh->execute([$orden_id]);
+        $deletedCounts['prensas_habilitadas (orden_id)'] = $delPh->rowCount();
 
-    // 4) borrar la orden en ordenes_produccion (la última)
-    $delOrd = $pdo->prepare("DELETE FROM ordenes_produccion WHERE id = ?");
-    $delOrd->execute([$orden_id]);
-    $deletedCounts['ordenes_produccion (id)'] = $delOrd->rowCount();
+        // 4) borrar la orden en ordenes_produccion (la última)
+        $delOrd = $pdo->prepare("DELETE FROM ordenes_produccion WHERE id = ?");
+        $delOrd->execute([$orden_id]);
+        $deletedCounts['ordenes_produccion (id)'] = $delOrd->rowCount();
 
-    $pdo->commit();
+        $pdo->commit();
 
-    // Verificación final: buscar tablas que contienen filas todavía con la orden_id
-    $remaining = [];
-    $q3 = $pdo->prepare("
+        // Verificación final: buscar tablas que contienen filas todavía con la orden_id
+        $remaining = [];
+        $q3 = $pdo->prepare("
         SELECT table_name, column_name
         FROM information_schema.columns
         WHERE table_schema = DATABASE()
           AND column_name LIKE '%orden%';
     ");
-    $q3->execute();
-    $colsLikeOrden = $q3->fetchAll(PDO::FETCH_ASSOC);
+        $q3->execute();
+        $colsLikeOrden = $q3->fetchAll(PDO::FETCH_ASSOC);
 
-    foreach ($colsLikeOrden as $colRow) {
-        $tbl = $colRow['table_name'];
-        $col  = $colRow['column_name'];
-        // construir consulta segura (no parámetros en nombre de tabla/col)
-        $sql = "SELECT COUNT(*) FROM `$tbl` WHERE `$col` = ?";
-        $chk = $pdo->prepare($sql);
-        $chk->execute([$orden_id]);
-        $cnt = intval($chk->fetchColumn());
-        if ($cnt > 0) $remaining["$tbl.$col"] = $cnt;
-    }
-
-    // también comprobar ordenes_produccion
-    $chkOrd = $pdo->prepare("SELECT COUNT(*) FROM ordenes_produccion WHERE id = ?");
-    $chkOrd->execute([$orden_id]);
-    $cntOrd = intval($chkOrd->fetchColumn());
-    if ($cntOrd > 0) $remaining['ordenes_produccion.id'] = $cntOrd;
-
-    // Generar mensaje legible
-    $msg = "✅ Eliminación completada. Detalle filas eliminadas: ";
-    foreach ($deletedCounts as $k => $v) {
-        $msg .= "<br>• $k : $v";
-    }
-    if (empty($remaining)) {
-        $msg .= "<br><b>No se encontraron referencias restantes a la orden $orden_id.</b>";
-    } else {
-        $msg .= "<br><b>¡ATENCIÓN! Quedan referencias a la orden $orden_id:</b>";
-        foreach ($remaining as $k => $v) {
-            $msg .= "<br>• $k => $v filas";
+        foreach ($colsLikeOrden as $colRow) {
+            $tbl = $colRow['table_name'];
+            $col  = $colRow['column_name'];
+            // construir consulta segura (no parámetros en nombre de tabla/col)
+            $sql = "SELECT COUNT(*) FROM `$tbl` WHERE `$col` = ?";
+            $chk = $pdo->prepare($sql);
+            $chk->execute([$orden_id]);
+            $cnt = intval($chk->fetchColumn());
+            if ($cnt > 0) $remaining["$tbl.$col"] = $cnt;
         }
-        $msg .= "<br>Revisa estas tablas y el código que lista las órdenes (p.e. 'Cerrar orden').";
-    }
 
-    $_SESSION['mensaje'] = $msg;
-} catch (Exception $e) {
-    $pdo->rollBack();
-    $_SESSION['mensaje'] = "❌ Error al eliminar orden $orden_id: " . htmlspecialchars($e->getMessage());
-}
+        // también comprobar ordenes_produccion
+        $chkOrd = $pdo->prepare("SELECT COUNT(*) FROM ordenes_produccion WHERE id = ?");
+        $chkOrd->execute([$orden_id]);
+        $cntOrd = intval($chkOrd->fetchColumn());
+        if ($cntOrd > 0) $remaining['ordenes_produccion.id'] = $cntOrd;
+
+        // Generar mensaje legible
+        $msg = "✅ Eliminación completada. Detalle filas eliminadas: ";
+        foreach ($deletedCounts as $k => $v) {
+            $msg .= "<br>• $k : $v";
+        }
+        if (empty($remaining)) {
+            $msg .= "<br><b>No se encontraron referencias restantes a la orden $orden_id.</b>";
+        } else {
+            $msg .= "<br><b>¡ATENCIÓN! Quedan referencias a la orden $orden_id:</b>";
+            foreach ($remaining as $k => $v) {
+                $msg .= "<br>• $k => $v filas";
+            }
+            $msg .= "<br>Revisa estas tablas y el código que lista las órdenes (p.e. 'Cerrar orden').";
+        }
+
+        $_SESSION['mensaje'] = $msg;
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        $_SESSION['mensaje'] = "❌ Error al eliminar orden $orden_id: " . htmlspecialchars($e->getMessage());
+    }
 
 
     // redirigir para limpiar POST y mostrar mensaje
@@ -183,10 +183,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
     if ($cantidad_inicio < 0) $cantidad_inicio = 0;
 
     // Insertar orden incluyendo cantidad_inicio
+    // obtener turno seleccionado
+    $turno_sel = isset($_POST['turno']) ? intval($_POST['turno']) : 1;
+
     $stmt = $pdo->prepare("INSERT INTO ordenes_produccion 
-        (numero_orden, pieza_id, prensa_id, fecha_inicio, admin_id, estado, cantidad_inicio) 
-        VALUES (?, ?, ?, ?, ?, 'abierta', ?)");
-    $stmt->execute([$numero_orden, $pieza_id, $prensa_id, $fecha, $admin_id, $cantidad_inicio]);
+        (numero_orden, pieza_id, prensa_id, fecha_inicio, admin_id, estado, cantidad_inicio, turno) 
+        VALUES (?, ?, ?, ?, ?, 'abierta', ?, ?)");
+    $stmt->execute([$numero_orden, $pieza_id, $prensa_id, $fecha, $admin_id, $cantidad_inicio, $turno_sel]);
     $orden_id = $pdo->lastInsertId();
 
     // 🔹 Generar numero_lote con formato: fecha + "-" + texto manual
@@ -198,116 +201,185 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['habilitar'])) {
 
     // Habilitar prensa
     $stmt2 = $pdo->prepare("INSERT INTO prensas_habilitadas 
-        (orden_id, fecha, prensa_id, pieza_id, habilitado) 
-        VALUES (?, ?, ?, ?, 1)");
-    $stmt2->execute([$orden_id, $fecha, $prensa_id, $pieza_id]);
+        (orden_id, fecha, prensa_id, pieza_id, habilitado, turno) 
+        VALUES (?, ?, ?, ?, 1, ?)");
+    $stmt2->execute([$orden_id, $fecha, $prensa_id, $pieza_id, $turno_sel]);
+
+    // ----------------------------
+    // VALIDACIONES DEFENSIVAS
+    // ----------------------------
+    // Asegurarnos que prensa_id y pieza_id son enteros simples (no arrays ni nulos)
+    $prensa_id = intval($prensa_id);
+    $pieza_id  = intval($pieza_id);
+
+    // 1) Comprobar que la prensa existe
+    $chk = $pdo->prepare("SELECT COUNT(*) FROM prensas WHERE id = ?");
+    $chk->execute([$prensa_id]);
+    if (intval($chk->fetchColumn()) === 0) {
+        // algo raro: prensa seleccionada no existe -> eliminar la habilitación que acabamos de crear y abortar
+        $pdo->prepare("DELETE FROM prensas_habilitadas WHERE orden_id = ? AND prensa_id = ?")->execute([$orden_id, $prensa_id]);
+        $_SESSION['mensaje'] = "❌ Error: la prensa seleccionada (id $prensa_id) no existe. Habilitación cancelada.";
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+    }
+
+    // 2) Comprobar que la pieza existe
+    $chk2 = $pdo->prepare("SELECT COUNT(*) FROM piezas WHERE id = ?");
+    $chk2->execute([$pieza_id]);
+    if (intval($chk2->fetchColumn()) === 0) {
+        $pdo->prepare("DELETE FROM prensas_habilitadas WHERE orden_id = ? AND prensa_id = ?")->execute([$orden_id, $prensa_id]);
+        $_SESSION['mensaje'] = "❌ Error: la pieza seleccionada (id $pieza_id) no existe. Habilitación cancelada.";
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+    }
+
+    // 3) Prevención de duplicados / creación masiva accidental
+    // Si ya existen capturas para esta orden + prensa + fecha no vamos a crear nuevas franjas (evita multiples ejecuciones)
+    $chk3 = $pdo->prepare("SELECT COUNT(*) FROM capturas_hora WHERE orden_id = ? AND prensa_id = ? AND fecha = ?");
+    $chk3->execute([$orden_id, $prensa_id, $fecha]);
+    $existentes = intval($chk3->fetchColumn());
+    if ($existentes > 0) {
+        // No crear nada; dejar mensaje informativo
+        $mensaje = "⚠ Ya existen <b>$existentes</b> franjas para la orden/fecha/prensa seleccionada. No se crearon nuevas franjas para evitar duplicados.";
+        // Nota: no hacemos rollback de la orden/prensa_habilitadas ya que la habilitación quedó registrada.
+        // Saltamos la generación de franjas (el bloque siguiente lo comprobará con start_dt !== null y con este chequeo).
+    }
+
+
     // ==============================
-    // 🔧 Crear franjas horarias dinámicas (soporta turnos 08-16, 16-24 y 00-08)
+    // 🔧 Generar franjas por TURNO seleccionado respetando la hora de habilitación
     // ==============================
     date_default_timezone_set('America/Mexico_City');
-    $hora_actual   = intval(date('H'));
-    $minuto_actual = intval(date('i'));
 
-    // Definimos los turnos (start inclusive, end exclusive; end puede ser 24 o 8 o 16)
-    $turnos = [
-        ['start' => 8,  'end' => 16], // 08:00 - 16:00
-        ['start' => 16, 'end' => 24], // 16:00 - 00:00 (representado como 24)
-        ['start' => 0,  'end' => 8],  // 00:00 - 08:00 (madrugada)
-    ];
+    // umbral en minutos: si se habilita con >= este umbral se inicia en la siguiente hora.
+    // Usa 50 (como antes mencionaste 45-50). Cámbialo si quieres 45.
+    $MINUTO_UMBRAL = 50;
 
-    // Encontrar el turno actual (el que contiene la hora actual)
-    $turno_actual = null;
-    foreach ($turnos as $t) {
-        // tratamiento especial para el turno 0..8 (madrugada)
-        if ($t['start'] <= $t['end']) {
-            if ($hora_actual >= $t['start'] && $hora_actual < $t['end']) {
-                $turno_actual = $t;
-                break;
-            }
-        } else {
-            // no se usa en este arreglo, pero se deja por si se agrega un turno que cruza medianoche
-            if ($hora_actual >= $t['start'] || $hora_actual < $t['end']) {
-                $turno_actual = $t;
-                break;
-            }
-        }
-    }
+    // turno seleccionado (asegurar valor)
+    if (!isset($turno_sel)) $turno_sel = isset($_POST['turno']) ? intval($_POST['turno']) : 1;
 
-    // Si la hora actual no cae dentro de ningún turno (por ejemplo habilitamos antes del inicio del primer turno),
-    // elegimos el primer turno del día (08-16) por defecto para generar franjas desde su inicio.
-    if ($turno_actual === null) {
-        $turno_actual = $turnos[0];
-    }
+    // detectar si la fecha de inicio es sábado
+    $dia_sem = (new DateTime($fecha))->format('N'); // 1..7 (1=Mon,7=Sun)
+    $esSabado = ($dia_sem == 6);
 
-    $shift_start = $turno_actual['start'];
-    $shift_end   = $turno_actual['end']; // puede ser 24 o 8 o 16
-
-    // Calcular hora_inicio basada en la hora actual y el umbral de minutos (>=50 => siguiente hora)
-    if ($hora_actual < $shift_start) {
-        // si habilitaron antes del inicio del turno, empezamos desde el inicio del turno
-        $hora_inicio = $shift_start;
-    } elseif ($hora_actual >= $shift_end && $shift_end > $shift_start) {
-        // si ya pasó el turno (solo aplica para turnos no cruzados), no crear franjas
-        $hora_inicio = null;
+    if (!$esSabado) {
+        $mapTurnos = [
+            1 => ['start' => 6,  'end' => 14],
+            2 => ['start' => 14, 'end' => 22],
+            3 => ['start' => 22, 'end' => 6],  // cruza medianoche
+            4 => ['start' => 8,  'end' => 16],
+        ];
     } else {
-        $hora_inicio = ($minuto_actual >= 50) ? ($hora_actual + 1) : $hora_actual;
-        // aseguramos que no empecemos antes del inicio
-        if ($shift_start <= $shift_end) {
-            if ($hora_inicio < $shift_start) $hora_inicio = $shift_start;
+        $mapTurnos = [
+            1 => ['start' => 6,  'end' => 12],
+            2 => ['start' => 12, 'end' => 18],
+            3 => ['start' => 18, 'end' => 0],  // 18:00 - 00:00
+            4 => ['start' => 8,  'end' => 13], // mixto sábado 08:00-13:00
+        ];
+    }
+    if (!isset($mapTurnos[$turno_sel])) $turno_sel = 1;
+    $shift = $mapTurnos[$turno_sel];
+    $shift_start = $shift['start'];
+    $shift_end   = $shift['end'];
+    if ($shift_end === 0) $shift_end = 24;
+
+    // construir datetimes absolutos para la ocurrencia del turno (fecha = $fecha)
+    $start_date = new DateTime($fecha);
+    $shift_start_dt = (clone $start_date)->setTime($shift_start % 24, 0, 0);
+    if ($shift_end <= $shift_start) {
+        // cruza medianoche -> fin es día siguiente
+        $shift_end_dt = (clone $start_date)->modify('+1 day')->setTime($shift_end % 24, 0, 0);
+    } else {
+        $shift_end_dt = (clone $start_date)->setTime($shift_end % 24, 0, 0);
+    }
+
+    // ahora (momento en que se habilita) en zona local
+    $now = new DateTime('now', new DateTimeZone('America/Mexico_City'));
+
+    // ¿quiere forzar la creación completa del turno aunque haya pasado?
+    $force_full = isset($_POST['force_full']) && ($_POST['force_full'] == '1' || $_POST['force_full'] === 1);
+
+    // Si la fecha seleccionada NO es hoy (p. ej. mañana), asumimos que se quiere crear el turno completo
+    $fecha_dt = new DateTime($fecha);
+    $hoy_dt = new DateTime(date('Y-m-d'));
+    $fecha_es_igual_hoy = ($fecha_dt->format('Y-m-d') === $hoy_dt->format('Y-m-d'));
+
+    // decidir punto de inicio real ($start_dt) según reglas:
+    // 1) Si se solicita forzar creación completa -> empezar desde shift_start_dt
+    // 2) Si la fecha seleccionada NO es hoy (p.ej. turno para mañana) -> empezar desde shift_start_dt
+    // 3) Si ahora < shift_start_dt -> antes del inicio -> empezar desde shift_start_dt
+    // 4) Si ahora >= shift_end_dt -> turno ya pasó; si force_full entonces crear desde shift_start_dt, si no -> no crear
+    // 5) Si estamos dentro del turno -> empezar desde hora actual redondeada por umbral (mantener regla minutos)
+    $start_dt = null;
+    if ($force_full || !$fecha_es_igual_hoy || $now < $shift_start_dt) {
+        // caso 1,2,3: crear completo desde inicio del turno (shift_start_dt)
+        $start_dt = clone $shift_start_dt;
+    } else {
+        // aquí: fecha == hoy y $now >= shift_start_dt
+        if ($now >= $shift_end_dt) {
+            // turno ya terminó y no se forzó -> no generar franjas
+            $start_dt = null;
         } else {
-            // en caso hipotético de un turno que cruce medianoche (no usado aquí),
-            // dejamos la hora tal cual porque manejaremos fechas con DateTime abajo.
+            // estamos dentro del turno: iniciar desde la hora actual redondeada por umbral
+            $minNow = intval($now->format('i'));
+            $hourNow = intval($now->format('H'));
+            if ($minNow >= $MINUTO_UMBRAL) {
+                $hourStart = $hourNow + 1;
+            } else {
+                $hourStart = $hourNow;
+            }
+            // crear DateTime para el inicio: usar el mismo día/hora de $now
+            $start_dt = (clone $now)->setTime($hourStart % 24, 0, 0);
         }
     }
 
-    if ($hora_inicio !== null) {
-        // Construimos DateTime de inicio (puede pertenecer al día $fecha o al día siguiente si corresponde)
-        // Normalizamos la hora de inicio dentro del rango del turno
-        // Si hora_inicio >= 24 reducimos 24 y movemos al día siguiente (por seguridad)
-        if ($hora_inicio >= 24) {
-            $hora_inicio -= 24;
-            $start_date = (new DateTime($fecha))->modify('+1 day');
-        } else {
-            $start_date = new DateTime($fecha);
-        }
+     // Si ya existían franjas, se saltará la creación (prevención previa)
+    if (isset($existentes) && $existentes > 0) {
+        // ya notificamos en $mensaje antes — no crear nada
+    } else {
+        // Ejecutar creación de franjas en TRANSACCIÓN para mayor seguridad
+        try {
+            $pdo->beginTransaction();
 
-        // Ajustar la hora de $start_date al $hora_inicio calculado
-        $start_dt = DateTime::createFromFormat('Y-m-d H:i', $start_date->format('Y-m-d') . ' ' . str_pad($hora_inicio, 2, '0', STR_PAD_LEFT) . ':00');
+            if ($start_dt !== null) {
+                // asegurarse que start_dt no sea anterior al shift_start_dt (por si la redondeo lo dejó antes)
+                if ($start_dt < $shift_start_dt) $start_dt = clone $shift_start_dt;
 
-        // Construir DateTime de fin de turno ($shift_end). Si shift_end <= shift_start, significa que cruza medianoche.
-        if ($shift_end > $shift_start) {
-            // fin el mismo día (pero si shift_end == 24, lo tratamos como 00:00 del día siguiente)
-            if ($shift_end === 24) {
-                $end_dt = (new DateTime($fecha))->modify('+1 day')->setTime(0, 0);
-            } else {
-                $end_dt = DateTime::createFromFormat('Y-m-d H:i', $start_date->format('Y-m-d') . ' ' . str_pad($shift_end, 2, '0', STR_PAD_LEFT) . ':00');
-            }
-        } else {
-            // turno que cruza medianoche (ej. start 16 end 8) -> fin es día siguiente
-            $end_dt = DateTime::createFromFormat('Y-m-d H:i', $start_date->format('Y-m-d') . ' ' . str_pad($shift_end, 2, '0', STR_PAD_LEFT) . ':00')->modify('+1 day');
-        }
-
-        // Si por alguna razón start >= end (p. ej. habilitaron después del fin), no generar nada
-        if ($start_dt < $end_dt) {
-            $slot_dt = clone $start_dt;
-            while ($slot_dt < $end_dt) {
-                $slot_fin_dt = (clone $slot_dt)->modify('+1 hour');
-
-                $inicio = $slot_dt->format('H:i');
-                $fin    = $slot_fin_dt->format('H:i');
-                $slot_fecha = $slot_dt->format('Y-m-d'); // la fecha correcta (si cruza medianoche, será día siguiente)
-
-                $stmt3 = $pdo->prepare("INSERT INTO capturas_hora 
+                $slot_dt = clone $start_dt;
+                $insertCount = 0;
+                // usar 1 sola preparación fuera del loop por eficiencia
+                $insStmt = $pdo->prepare("INSERT INTO capturas_hora 
                     (orden_id, fecha, prensa_id, pieza_id, hora_inicio, hora_fin, estado) 
                     VALUES (?, ?, ?, ?, ?, ?, 'pendiente')");
-                $stmt3->execute([$orden_id, $slot_fecha, $prensa_id, $pieza_id, $inicio, $fin]);
 
-                // avanzar una hora
-                $slot_dt->modify('+1 hour');
+                while ($slot_dt < $shift_end_dt) {
+                    $slot_fin_dt = (clone $slot_dt)->modify('+1 hour');
+                    $inicio = $slot_dt->format('H:i');
+                    $fin    = $slot_fin_dt->format('H:i');
+                    $slot_fecha = $start_date->format('Y-m-d'); // fecha de inicio del turno según spec
+
+                    $insStmt->execute([$orden_id, $slot_fecha, $prensa_id, $pieza_id, $inicio, $fin]);
+                    $insertCount++;
+
+                    $slot_dt->modify('+1 hour');
+                }
+
+                $pdo->commit();
+                $mensaje = "✅ Prensa habilitada y orden creada con lote <b>$numero_lote</b>. Cantidad inicio registrada: <b>" . number_format($cantidad_inicio) . "</b>.<br>Se generaron <b>$insertCount</b> franjas horarias.";
+            } else {
+                // start_dt es null => no generar franjas
+                $pdo->commit(); // nada que hacer, pero cerramos la transacción
+                $mensaje = "✅ Prensa habilitada y orden creada con lote <b>$numero_lote</b>. Cantidad inicio registrada: <b>" . number_format($cantidad_inicio) . "</b>. (No se generaron franjas: turno pasado o condición no cumplida.)";
             }
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            // borrar la habilitación creada provisionalmente para dejar la DB en estado consistente
+            $pdo->prepare("DELETE FROM prensas_habilitadas WHERE orden_id = ? AND prensa_id = ?")->execute([$orden_id, $prensa_id]);
+            $_SESSION['mensaje'] = "❌ Error al generar franjas horarias: " . htmlspecialchars($e->getMessage());
+            header("Location: " . $_SERVER['PHP_SELF']);
+            exit();
         }
     }
-
 
     $mensaje = "✅ Prensa habilitada y orden creada con lote <b>$numero_lote</b>. Cantidad inicio registrada: <b>" . number_format($cantidad_inicio) . "</b>.";
 }
@@ -331,7 +403,11 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .btn-danger-sm { padding: .35rem .6rem; font-size: .9rem; border-radius: .35rem; }
+        .btn-danger-sm {
+            padding: .35rem .6rem;
+            font-size: .9rem;
+            border-radius: .35rem;
+        }
     </style>
 </head>
 
@@ -344,7 +420,8 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <?php if (!empty($mensaje)): ?>
             <div class="alert alert-success"><?= $mensaje ?></div>
         <?php elseif (!empty($_SESSION['mensaje'])): ?>
-            <div class="alert alert-info"><?= $_SESSION['mensaje']; unset($_SESSION['mensaje']); ?></div>
+            <div class="alert alert-info"><?= $_SESSION['mensaje'];
+                                            unset($_SESSION['mensaje']); ?></div>
         <?php endif; ?>
 
         <!-- Habilitar prensa -->
@@ -361,7 +438,7 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Fecha</label>
-                            <input type="date" name="fecha" value="<?= $hoy ?>" class="form-control" required>
+                            <input type="date" id="fecha_input" name="fecha" value="<?= $hoy ?>" class="form-control" required>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Código manual de lote</label>
@@ -388,6 +465,28 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <?php foreach ($piezas as $pi): ?>
                                     <option value="<?= $pi['id'] ?>"><?= $pi['nombre'] ?></option>
                                 <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1" id="force_full" name="force_full">
+                                    <label class="form-check-label" for="force_full">
+                                        Forzar creación completa del turno (crear todas las franjas aunque el turno ya haya pasado)
+                                    </label>
+                                </div>
+                                <small class="text-muted d-block mt-1">
+                                    Si marcas esto, se crearán todas las franjas del turno seleccionado para la fecha indicada.
+                                </small>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mt-3">
+                            <label class="form-label">Turno</label>
+                            <select id="turno_select" name="turno" class="form-select" required>
+                                <option value="1">1 - Primer turno (06:00 - 14:00)</option>
+                                <option value="2">2 - Segundo turno (14:00 - 22:00)</option>
+                                <option value="3">3 - Tercer turno (22:00 - 06:00)</option>
+                                <option value="4">4 - Turno mixto (08:00 - 16:00)</option>
                             </select>
                         </div>
                     </div>
@@ -429,7 +528,7 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                             <input type="hidden" name="eliminar_orden_id" value="<?= (int)$h['orden_id'] ?>">
                                             <button type="submit" class="btn btn-danger btn-danger-sm">Eliminar</button>
                                         </form>
-                                        </td>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -444,17 +543,65 @@ $habilitadas = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 
     <script>
-        function confirmEliminar(e, ordenId) {
-            // Si el submit viene por JS (onclick), confirmamos
-            const ok = confirm("¿Eliminar la orden " + ordenId + " y todo lo creado por ella?\nEsta acción no se puede deshacer.");
-            if (!ok) {
-                e.preventDefault();
-                return false;
+        (function() {
+            // mapeos de texto para mostrar en el select
+            const textosNormal = {
+                1: '1 - Primer turno (06:00 - 14:00)',
+                2: '2 - Segundo turno (14:00 - 22:00)',
+                3: '3 - Tercer turno (22:00 - 06:00) — cruza medianoche',
+                4: '4 - Turno mixto (08:00 - 16:00)'
+            };
+            const textosSabado = {
+                1: '1 - Primer turno (06:00 - 12:00)',
+                2: '2 - Segundo turno (12:00 - 18:00)',
+                3: '3 - Tercer turno (18:00 - 00:00)',
+                4: '4 - Turno mixto (08:00 - 13:00)' // <--- actualizado
+            };
+
+
+            const fechaInput = document.getElementById('fecha_input');
+            const turnoSelect = document.getElementById('turno_select');
+
+            if (!fechaInput || !turnoSelect) return;
+
+            function esSabadoFecha(dStr) {
+                // dStr en formato yyyy-mm-dd
+                if (!dStr) return false;
+                const parts = dStr.split('-');
+                if (parts.length !== 3) return false;
+                const dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                // getDay(): 0 = Domingo, 6 = Sábado
+                return dt.getDay() === 6;
             }
-            return true;
-        }
+
+            function actualizarLabels() {
+                const fechaVal = fechaInput.value;
+                const esSab = esSabadoFecha(fechaVal);
+                const textos = esSab ? textosSabado : textosNormal;
+
+                // actualizar cada option según su value
+                Array.from(turnoSelect.options).forEach(opt => {
+                    const v = opt.value;
+                    if (textos[v]) opt.text = textos[v];
+                });
+
+                // mostrar pequeño aviso visual (opcional): si sábado, añadir un título
+                if (esSab) {
+                    turnoSelect.title = "Fecha seleccionada: sábado — horarios especiales aplicarán al enviar";
+                } else {
+                    turnoSelect.title = "Fecha seleccionada: día normal";
+                }
+            }
+
+            // actualizar al cargar
+            document.addEventListener('DOMContentLoaded', actualizarLabels);
+            // actualizar cuando la fecha cambie
+            fechaInput.addEventListener('change', actualizarLabels);
+        })();
     </script>
+
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

@@ -5,51 +5,38 @@ require 'db.php';
 $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
 // --- Consulta de producción ---
-// --- Consulta de producción (capturas_hora + ordenes_produccion + rendimientos) ---
+// Usamos la misma lógica que en reportes.php: base en rendimientos y LEFT JOIN para asignar prensa por pieza.
+// Esto evita duplicados (fila sin prensa + filas por prensa) y produce exactamente las mismas filas que en la vista HTML.
 $stmt = $pdo->prepare("
-    SELECT COALESCE(MAX(NULLIF(prensa,'')), '') AS prensa,
-           pieza,
-           SUM(total_producido) AS total_cantidad
-    FROM (
-        /* 1) sumas desde capturas_hora (si aún hay datos por hora) */
-        SELECT pr.nombre AS prensa,
-               pi.nombre AS pieza,
-               IFNULL(SUM(ch.cantidad),0) AS total_producido
-        FROM capturas_hora ch
-        JOIN prensas pr ON pr.id = ch.prensa_id
-        JOIN piezas pi ON pi.id = ch.pieza_id
-        WHERE ch.fecha = ?
-        GROUP BY pr.nombre, pi.nombre
+    -- subconsulta que busca la prensa asociada a cada pieza (desde capturas_hora u ordenes cerradas)
+    SELECT COALESCE(pn.prensa, '') AS prensa,
+           pi.nombre AS pieza,
+           COALESCE(SUM(r.producido), 0) AS total_cantidad
+    FROM rendimientos r
+    JOIN piezas pi ON pi.id = r.pieza_id
+    LEFT JOIN (
+        SELECT pieza_id, MAX(NULLIF(prensa, '')) AS prensa
+        FROM (
+            SELECT ch.pieza_id, pr.nombre AS prensa
+            FROM capturas_hora ch
+            JOIN prensas pr ON pr.id = ch.prensa_id
+            WHERE ch.fecha = ?
 
-        UNION ALL
+            UNION ALL
 
-        /* 2) sumas desde ordenes_produccion cerradas ese día (preferir total_producida) */
-        SELECT pr2.nombre AS prensa,
-               pi2.nombre AS pieza,
-               COALESCE(op.total_producida,
-                        (COALESCE(op.cantidad_final,0) - COALESCE(op.cantidad_inicio,0)),
-                        0) AS total_producido
-        FROM ordenes_produccion op
-        JOIN prensas pr2 ON pr2.id = op.prensa_id
-        JOIN piezas pi2 ON pi2.id = op.pieza_id
-        WHERE DATE(op.fecha_cierre) = ? AND op.estado = 'cerrada'
-
-        UNION ALL
-
-        /* 3) producción real desde rendimientos (por pieza) */
-        SELECT '' AS prensa,
-               pi3.nombre AS pieza,
-               COALESCE(r.producido, 0) AS total_producido
-        FROM rendimientos r
-        JOIN piezas pi3 ON pi3.id = r.pieza_id
-        WHERE r.fecha = ?
-    ) AS unionados
-    GROUP BY pieza
-    ORDER BY prensa, pieza
+            SELECT op.pieza_id, pr2.nombre AS prensa
+            FROM ordenes_produccion op
+            JOIN prensas pr2 ON pr2.id = op.prensa_id
+            WHERE DATE(op.fecha_cierre) = ? AND op.estado = 'cerrada'
+        ) AS t
+        GROUP BY pieza_id
+    ) pn ON pn.pieza_id = r.pieza_id
+    WHERE r.fecha = ?
+    GROUP BY pn.prensa, pi.nombre
+    ORDER BY pn.prensa, pi.nombre
 ");
 $stmt->execute([$fecha, $fecha, $fecha]);
 $datos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
 
 // --- Consulta de rendimientos ---
 $stmt2 = $pdo->prepare("
@@ -86,9 +73,9 @@ $pdf->SetTitle('Reporte de Producción');
 $pdf->SetMargins(15, 30, 15);
 $pdf->SetAutoPageBreak(true, 20);
 
-
 // --------------------------------------------------
 // --- GRÁFICA DE BARRAS ---
+// Nota: aquí combinamos el porcentaje + nombre de pieza para que el % aparezca antes del nombre (solo en la gráfica de barras)
 if (!empty($rendimientos)) {
     $width = 600;
     $height = 300;
@@ -103,11 +90,11 @@ if (!empty($rendimientos)) {
 
     $margenIzq = 60;
     $margenInf = 40;
-    $maxAltura = $height - $margenInf - 20;
+    $maxAltura = $height - $margenInf - 80; // CAMBIAR 20 por 60 (para dejar 60px arriba)
 
-    imageline($im, $margenIzq, 20, $margenIzq, $height - $margenInf, $black);
+    // Eje Y ahora empieza en Y=60
+    imageline($im, $margenIzq, 80, $margenIzq, $height - $margenInf, $black); // CAMBIAR 20 por 60
     imageline($im, $margenIzq, $height - $margenInf, $width - 20, $height - $margenInf, $black);
-
     $maxValor = 0;
     foreach ($rendimientos as $r) {
         $maxValor = max($maxValor, $r['esperado'], $r['producido']);
@@ -123,37 +110,39 @@ if (!empty($rendimientos)) {
         $esperadoAltura = ($r['esperado'] / $maxValor) * $maxAltura;
         $producidoAltura = ($r['producido'] / $maxValor) * $maxAltura;
 
+        // Dibujar barras (esperado y producido)
         imagefilledrectangle($im, $x, $height - $margenInf - $esperadoAltura, $x + $anchoBarra, $height - $margenInf, $blue);
         imagefilledrectangle($im, $x + $anchoBarra + 5, $height - $margenInf - $producidoAltura, $x + 2 * $anchoBarra + 5, $height - $margenInf, $green);
 
-        imagestringup($im, 2, $x + 5, $height - 5, substr($r['pieza'], 0, 10), $black);
-        $x += 2 * $anchoBarra + $espacio;
-        // Texto con el rendimiento %
+        // Preparar etiqueta: porcentaje antes del nombre (solo aquí)
         $porcentaje = number_format((float)$r['rendimiento'], 1) . '%';
-        imagestring(
-            $im,
-            3,
-            $x + $anchoBarra - 5,
-            $height - $margenInf - max($esperadoAltura, $producidoAltura) - 15,
-            $porcentaje,
-            $black
-        );
+        // Limitar nombre para que no se salga; puedes ajustar 12 a lo que convenga
+        $nombreCorto = substr($r['pieza'], 0, 12);
+        $label = $porcentaje . ' ' . $nombreCorto;
+
+        // Dibujar etiqueta vertical (rotada) centrada debajo de las dos barras
+        // imagestringup coloca texto vertical; las coordenadas se deben ajustar
+        $labelX = $x + $anchoBarra; // centro aproximado
+        imagestringup($im, 2, $labelX, $height - 5, $label, $black);
+
+        // avanzar la posición X para la siguiente pieza
+        $x += 2 * $anchoBarra + $espacio;
     }
 
-    // Leyenda
-    imagefilledrectangle($im, 100, 15, 110, 25, $blue);
-    imagestring($im, 3, 115, 12, 'Esperado', $black);
-    imagefilledrectangle($im, 200, 15, 210, 25, $green);
-    imagestring($im, 3, 215, 12, 'Producido', $black);
+    // Leyenda - MOVIDA HACIA ABAJO (cambiar 15 por 35 y 12 por 32)
+    imagefilledrectangle($im, 100, 35, 110, 45, $blue); // Y inicial 35, Y final 45 (10 pix de alto)
+    imagestring($im, 3, 115, 32, 'Esperado', $black);
+    imagefilledrectangle($im, 200, 35, 210, 45, $green);
+    imagestring($im, 3, 215, 32, 'Producido', $black);
 
     $chart_path = __DIR__ . '/tmp_chart_barras.png';
     imagepng($im, $chart_path);
     imagedestroy($im);
 }
 
-
 // --------------------------------------------------
 // --- GRÁFICA LINEAL ---
+// (no cambiamos la lógica de la gráfica lineal; los porcentajes ya se mostraban sobre puntos)
 if (!empty($rendimientos)) {
     $width = 600;
     $height = 300;
@@ -168,9 +157,10 @@ if (!empty($rendimientos)) {
 
     $margenIzq = 60;
     $margenInf = 40;
-    $maxAltura = $height - $margenInf - 20;
+    $maxAltura = $height - $margenInf - 80; // CAMBIAR 20 por 60 (para dejar 60px arriba)
 
-    imageline($img, $margenIzq, 20, $margenIzq, $height - $margenInf, $black);
+    // Eje Y ahora empieza en Y=60
+    imageline($img, $margenIzq, 80, $margenIzq, $height - $margenInf, $black); // CAMBIAR 20 por 60
     imageline($img, $margenIzq, $height - $margenInf, $width - 20, $height - $margenInf, $black);
 
     $maxValor = 0;
@@ -183,7 +173,6 @@ if (!empty($rendimientos)) {
     $espacio = ($width - $margenIzq - 60) / max(1, $numPiezas - 1);
 
     // Dibujar líneas
-
     $prevX = $prevY1 = $prevY2 = null;
     foreach ($rendimientos as $i => $r) {
         $x = $margenIzq + $i * $espacio;
@@ -194,16 +183,17 @@ if (!empty($rendimientos)) {
             imageline($img, (int)$prevX, (int)$prevY1, (int)$x, (int)$yEsperado, $blue);
             imageline($img, (int)$prevX, (int)$prevY2, (int)$x, (int)$yProducido, $red);
         }
-// Mostrar porcentaje de rendimiento sobre los puntos
-$porcentaje = number_format((float)$r['rendimiento'], 1) . '%';
-imagestring(
-    $img,
-    3,
-    (int)$x - 10,
-    min((int)$yEsperado, (int)$yProducido) - 20,
-    $porcentaje,
-    $black
-);
+
+        // Mostrar porcentaje de rendimiento sobre los puntos (ya estaba así)
+        $porcentaje = number_format((float)$r['rendimiento'], 1) . '%';
+        imagestring(
+            $img,
+            3,
+            (int)$x - 10,
+            min((int)$yEsperado, (int)$yProducido) - 20,
+            $porcentaje,
+            $black
+        );
 
         $prevX = $x;
         $prevY1 = $yEsperado;
@@ -221,7 +211,6 @@ imagestring(
     imagedestroy($img);
 }
 
-
 // --------------------------------------------------
 // --- CONTENIDO PDF ---
 $pdf->AddPage();
@@ -229,7 +218,7 @@ $pdf->SetFont('helvetica', '', 11);
 $pdf->Cell(0, 8, 'Fecha del reporte: ' . date('d/m/Y', strtotime($fecha)), 0, 1, 'R');
 $pdf->Ln(5);
 
-// Tabla de producción
+// Tabla de producción (ahora incluye columna Prensa, agrupada por prensa+pieza)
 $pdf->SetFont('helvetica', 'B', 12);
 $pdf->SetFillColor(230, 230, 230);
 $pdf->Cell(60, 8, 'Prensa', 1, 0, 'C', 1);
@@ -249,7 +238,7 @@ if (!empty($datos)) {
 
 $pdf->Ln(10);
 
-// Tabla de rendimientos
+// Tabla de rendimientos (sin cambiar: porcentajes en su propia columna)
 $pdf->SetFont('helvetica', 'B', 13);
 $pdf->Cell(0, 8, 'Rendimientos registrados para ' . date('d/m/Y', strtotime($fecha)), 0, 1, 'C');
 $pdf->Ln(4);
@@ -280,27 +269,28 @@ $pdf->Ln(10);
 
 // Insertar ambas gráficas
 if (!empty($rendimientos)) {
-    if (file_exists($chart_path)) {
+    if (isset($chart_path) && file_exists($chart_path)) {
         $pdf->AddPage();
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 70, 'Gráfica de Producción (Barras)', 0, 1, 'C');
-        $pdf->Image($chart_path, 20, '90', 170);
-        $pdf->Ln(10);
+        // Ajuste de posición/alto para que se vea bien en Letter
+        $pdf->Image($chart_path, 20, 40, 170);
+        $pdf->Ln(30);
+        $pdf->SetFont('helvetica', 'I', 10);
+        $pdf->Cell(0, 20, 'Generado automáticamente por el sistema de producción SinterQ', 0, 0, 'C');
     }
-    $pdf->Ln(70);
-    $pdf->SetFont('helvetica', 'I', 10);
-    $pdf->Cell(0, 10, 'Generado automáticamente por el sistema de producción SinterQ', 0, 0, 'C');
-    if (file_exists($line_path)) {
+    if (isset($line_path) && file_exists($line_path)) {
         $pdf->AddPage();
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 70, 'Gráfica de Tendencia (Líneas)', 0, 1, 'C');
-        $pdf->Image($line_path, 20, '90', 170);
+        $pdf->Image($line_path, 20, 40, 170);
     }
 }
 
-$pdf->Ln(70);
+$pdf->Ln(20);
 $pdf->SetFont('helvetica', 'I', 10);
-$pdf->Cell(0, 10, 'Generado automáticamente por el sistema de producción SinterQ', 0, 0, 'C');
+$pdf->Cell(0, 20, 'Generado automáticamente por el sistema de producción SinterQ', 0, 0, 'C');
+
 $pdf->Output('Reporte_Produccion_' . $fecha . '.pdf', 'I');
 
 // Eliminar archivos temporales
